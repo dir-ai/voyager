@@ -36,8 +36,7 @@ jobs:
           if npm view "@dir-ai/voyager@$V" version >/dev/null 2>&1; then
             echo "@dir-ai/voyager@$V already on npm — skipping"
           else
-            # Provenance temporarily off to isolate a first-publish auth issue; re-enable later.
-            npm publish --access public
+            npm publish --provenance --access public
           fi
       - name: Sync server.json version to the tag
         run: |
