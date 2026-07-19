@@ -316,6 +316,30 @@ const INJECTION_PATTERNS: RegExp[] = [
   /忘记[^\n。]{0,10}(指令|指示|提示)/g,                                                           // ZH forget … instructions
   /你现在是/g,                                                                                    // ZH "you are now"
   /(泄露|泄漏|显示|打印).{0,8}(系统提示|系统提示词|密钥|秘密|凭据|令牌)/g,                        // ZH reveal secrets
+
+  // ── Override-intent, broadened ─────────────────────────────────────────────
+  // Kimi X-ray: the catalog only caught "ignore PREVIOUS INSTRUCTIONS" — it missed
+  // "ignore your rules/guidelines", "disregard all safety rules", "override your
+  // programming", "forget everything", and the same intents in IT/FR/DE/ES/PT/JA.
+  // These catch an OVERRIDE VERB + a CONTROL OBJECT (rules/guidelines/programming/
+  // training/safeguards/…) with a bounded gap between them. Bounded quantifiers =
+  // no ReDoS. Over-stripping benign "ignore the rules" prose in UNTRUSTED evidence
+  // is an acceptable trade — the frame is the real barrier; strip is depth.
+  /\b(ignore|disregard|forget|override|bypass|violate|abandon|drop)\b(?:\s+\w+){0,4}\s+(?:your|the|all|any|previous|prior|above|these|those|safety|current|my)?\s*(rules?|guidelines?|instructions?|prompts?|programming|training|directives?|polic(?:y|ies)|constraints?|safeguards?|filters?|restrictions?|guardrails?)\b/gi, // EN
+  /\bforget\s+everything\b/gi,
+  /\b(?:you\s+must|you\s+should|please)\s+(?:now\s+)?(?:trust|obey|comply\s+with|listen\s+to|follow)\s+(?:me|us|only\s+me|only\s+us|my\s+instructions?)\b/gi,
+  /\bdo\s*(?:not|n['’]?t)\s+(?:follow|obey|apply)\b(?:\s+\w+){0,3}\s+(?:instructions?|rules?|guidelines?|prompts?)\b/gi,
+  /\b(ignora|dimentica|scarta|aggira|viola)\b(?:\s+\w+){0,4}\s+(?:le\s+|tue\s+|tutte\s+)?(regole|istruzioni|indicazioni|linee\s+guida|direttive)\b/gi, // IT
+  /\bnon\s+seguire\b(?:\s+\w+){0,3}\s+(istruzioni|regole|indicazioni)\b/gi,
+  /\b(ignore[sz]?|oublie[sz]?|contourne[sz]?|enfreins?)\b(?:\s+\w+){0,4}\s+(?:vos|tes|les|toutes|mes)?\s*(instructions?|règles?|directives?|consignes?)\b/gi, // FR
+  /\bne\s+suive[sz]?\s+pas\b(?:\s+\w+){0,3}\s+(instructions?|règles?)\b/gi,
+  /\b(ignoriere?n?|vergiss|umgehe?n?|missachte[nt]?)\b(?:\s+\w+){0,4}\s+(?:ihre|deine|alle|die|meine)?\s*(regeln|anweisungen|richtlinien|vorgaben)\b/gi, // DE
+  /\b(ignora|olvida|omite|anula|salta)\b(?:\s+\w+){0,4}\s+(?:las|tus|todas|mis)?\s*(reglas|instrucciones|directrices|normas)\b/gi, // ES
+  /\bno\s+sigas\b(?:\s+\w+){0,3}\s+(instrucciones|reglas)\b/gi,
+  /\b(ignore|esqueça|anule|contorne)\b(?:\s+\w+){0,4}\s+(?:as|suas|todas|minhas)?\s*(regras|instruções|diretrizes)\b/gi, // PT
+  /(ルール|規則|指示|命令|ガイドライン|制約|プログラム).{0,8}(無視|忘れ|従わ|上書き)/g, // JA object→verb
+  /(無視|忘れ|上書き).{0,8}(ルール|規則|指示|命令|ガイドライン|プログラム)/g, // JA verb→object
+  /(忽略|忘记|无视|违反|覆盖).{0,10}(规则|规定|准则|指令|指示|设定|程序|限制)/g, // ZH override rules/guidelines
 ]
 
 // Letter-spaced evasion: `i g n o r e  a l l …` slips past word patterns. A run
