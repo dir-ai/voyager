@@ -18,11 +18,18 @@ jobs:
       - run: npm install -g npm@latest
       - run: npm ci --no-audit --no-fund
       - run: npm test
-      - name: Publish to npm (provenance via trusted publishing)
+      # Auth via an org/repo Actions secret NPM_TOKEN (a granular automation
+      # token with publish rights to @dir-ai/*). An org-level secret makes every
+      # future dir-ai/* repo publish with zero per-package setup. Provenance is
+      # still attached (id-token: write above). If NPM_TOKEN is absent, OIDC
+      # trusted publishing is used instead (configure it on npmjs.com).
+      - name: Publish to npm (provenance)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "@dir-ai/voyager@$V" version >/dev/null 2>&1; then
-            echo "voyager@$V already on npm — skipping"
+            echo "@dir-ai/voyager@$V already on npm — skipping"
           else
             npm publish --provenance --access public
           fi
