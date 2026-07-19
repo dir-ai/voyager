@@ -6,6 +6,26 @@ on:
 
 jobs:
   test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '22']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - name: CLI smoke (help renders)
+        run: node dist/cli.js --version
+
+  # End-to-end proof of the ISOLATED twin: install + container smoke-import of a
+  # benign package on a runner with a real Docker daemon. Asserts the run was
+  # actually isolated (isolated:true) — the core security property, live.
+  twin-e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,6 +33,36 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci --no-audit --no-fund
-      - run: npm test
-      - name: CLI smoke (help renders)
-        run: node dist/cli.js --version
+      - run: npm run build
+      - name: Twin proves a benign package inside the container
+        env:
+          VOYAGER_TWIN: '1'
+        run: |
+          node dist/cli.js check left-pad --twin --json > out.json || true
+          node -e "
+            const j = require('./out.json');
+            const est = j.claim?.data?.establishment ?? j.steps ?? [];
+            const judge = (j.steps||[]).find(s=>s.role==='judge');
+            console.log('judge:', judge?.finding);
+            const data = j.claim?.data ?? {};
+            if (data.twinStatus !== 'proved') { console.error('twin did not prove:', data.twinStatus); process.exit(1) }
+            if (j.claim.epistemic !== 'fact') { console.error('isolated proof must yield fact, got', j.claim.epistemic); process.exit(1) }
+            console.log('twin e2e OK — isolated container proof produced a FACT');
+          "
+      - name: Twin refuses host execution when no runtime is available
+        env:
+          VOYAGER_TWIN: '1'
+          # Force the no-runtime branch (runners have podman AND docker, so the
+          # refusal path can only be exercised via the explicit override).
+          VOYAGER_TWIN_RUNTIME: 'none'
+        run: |
+          node dist/cli.js check left-pad --twin --json > out2.json || true
+          node -e "
+            const j = require('./out2.json');
+            const judge = (j.steps||[]).find(s=>s.role==='judge');
+            console.log('judge:', judge?.finding);
+            const s = JSON.stringify(j);
+            if (!/refusing to execute|unsupported|container runtime/i.test(s)) { console.error('expected a refusal/unsupported, got a run'); process.exit(1) }
+            if (j.claim && j.claim.epistemic === 'fact') { console.error('must NOT be fact without isolation'); process.exit(1) }
+            console.log('twin refusal path OK — no host execution without a runtime');
+          "

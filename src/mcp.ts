@@ -104,14 +104,29 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const result = (data: unknown, isError = false) => ({ content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }], ...(isError ? { isError: true } : {}) })
   const ok = (data: unknown) => result(data)
   const err = (message: string) => result({ error: message }, true)
-  const str = (v: unknown, max: number): string | undefined => (typeof v === 'string' && v.length > 0 ? v.slice(0, max) : undefined)
+  // STRICT validation: an over-long or wrong-typed field is REJECTED, never
+  // silently truncated/coerced — truncation would make Voyager verify a
+  // different subject than the one the client asked about.
+  class McpInputError extends Error {}
+  const str = (v: unknown, max: number, field: string): string | undefined => {
+    if (v === undefined || v === null) return undefined
+    if (typeof v !== 'string') throw new McpInputError(`${field} must be a string`)
+    if (v.length === 0) return undefined
+    if (v.length > max) throw new McpInputError(`${field} exceeds ${max} chars — rejected (not truncated)`)
+    return v
+  }
+  const ecoOf = (v: unknown): 'npm' | 'pypi' => {
+    if (v === undefined || v === 'npm') return 'npm'
+    if (v === 'pypi') return 'pypi'
+    throw new McpInputError(`ecosystem must be "npm" or "pypi", got ${JSON.stringify(v)}`)
+  }
 
   try {
     if (name === 'check_package') {
       const a = args as { name?: unknown; ecosystem?: unknown; version?: unknown; proveInTwin?: unknown; projectDeps?: unknown }
-      const pkgName = str(a.name, 214)
+      const pkgName = str(a.name, 214, 'name')
       if (!pkgName) return err('name required')
-      const pkg: PackageQuery = { name: pkgName, ecosystem: a.ecosystem === 'pypi' ? 'pypi' : 'npm', version: str(a.version, 64) }
+      const pkg: PackageQuery = { name: pkgName, ecosystem: ecoOf(a.ecosystem), version: str(a.version, 64, 'version') }
       const projectDeps = a.projectDeps && typeof a.projectDeps === 'object' ? (a.projectDeps as Record<string, string>) : undefined
       const est = await establishPackage(pkg, { proveInTwin: a.proveInTwin === true, projectDeps })
       // A tool/registry failure → isError; a "rejected" (unsafe) package is a
@@ -120,33 +135,46 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
     if (name === 'retrieve') {
       const a = args as { query?: unknown; packages?: unknown; discover?: unknown; search?: unknown; docs?: unknown; docsTopic?: unknown; proveInTwin?: unknown }
-      const query = str(a.query, 2000)
+      const query = str(a.query, 2000, 'query')
       if (!query) return err('query required')
-      // Only forward a well-formed, bounded PackageQuery[] — drop anything else.
-      const packages = Array.isArray(a.packages)
-        ? a.packages.filter((p): p is PackageQuery => Boolean(p) && typeof (p as PackageQuery).name === 'string').slice(0, 20)
-        : undefined
+      // Validate every PackageQuery item strictly — reject a malformed list.
+      let packages: PackageQuery[] | undefined
+      if (a.packages !== undefined) {
+        if (!Array.isArray(a.packages) || a.packages.length > 20) throw new McpInputError('packages must be an array of at most 20 items')
+        packages = a.packages.map((p, i) => {
+          const q = p as { name?: unknown; ecosystem?: unknown; version?: unknown }
+          const n = str(q?.name, 214, `packages[${i}].name`)
+          if (!n) throw new McpInputError(`packages[${i}].name required`)
+          return { name: n, ecosystem: ecoOf(q.ecosystem), version: str(q.version, 64, `packages[${i}].version`) }
+        })
+      }
       return ok(await voyagerRetrieve(query, {
         packages,
-        discover: str(a.discover, 500),
-        search: str(a.search, 500),
-        docs: str(a.docs, 214),
-        docsTopic: str(a.docsTopic, 200),
+        discover: str(a.discover, 500, 'discover'),
+        search: str(a.search, 500, 'search'),
+        docs: str(a.docs, 214, 'docs'),
+        docsTopic: str(a.docsTopic, 200, 'docsTopic'),
         proveInTwin: a.proveInTwin === true,
       }))
     }
     if (name === 'discover_repos') {
       const a = args as { intent?: unknown; limit?: unknown }
-      const intent = str(a.intent, 500)
+      const intent = str(a.intent, 500, 'intent')
       if (!intent) return err('intent required')
-      const limit = typeof a.limit === 'number' && Number.isFinite(a.limit) ? Math.min(Math.max(Math.trunc(a.limit), 1), 25) : undefined
+      let limit: number | undefined
+      if (a.limit !== undefined) {
+        if (typeof a.limit !== 'number' || !Number.isInteger(a.limit) || a.limit < 1 || a.limit > 25) {
+          throw new McpInputError('limit must be an integer between 1 and 25')
+        }
+        limit = a.limit
+      }
       return ok(await voyagerRetrieve(intent, { discover: intent, discoverLimit: limit }))
     }
     if (name === 'fetch_docs') {
       const a = args as { library?: unknown; topic?: unknown }
-      const library = str(a.library, 214)
+      const library = str(a.library, 214, 'library')
       if (!library) return err('library required')
-      return ok(await voyagerRetrieve(library, { docs: library, docsTopic: str(a.topic, 200) }))
+      return ok(await voyagerRetrieve(library, { docs: library, docsTopic: str(a.topic, 200, 'topic') }))
     }
     return err(`Unknown tool: ${name}`)
   } catch (e) {

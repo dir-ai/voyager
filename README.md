@@ -50,7 +50,7 @@ deprecated, or non-existent dependency.
 ## Library
 
 ```ts
-import { checkPackage, voyagerRetrieve, setKeyResolver } from 'voyager'
+import { checkPackage, voyagerRetrieve, setKeyResolver } from '@dir-ai/voyager'
 
 const v = await checkPackage({ name: 'express', ecosystem: 'npm' })
 // → { verdict: 'belief' | 'fact' | 'rejected', claim, steps }  (adversarial trace)

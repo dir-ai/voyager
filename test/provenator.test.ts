@@ -116,12 +116,24 @@ test('buildEstablishment: a REAL vuln stays a rejection WITHOUT the error channe
   assert.equal(e.verdict, 'rejected')
   assert.ok(!e.error, 'a real vulnerability is a verdict on the package, not a tool error')
 })
-test('buildEstablishment: clean OSV → belief; twin-proved → fact; twin-failed stays belief (not rejected)', () => {
+test('buildEstablishment: clean OSV → belief; ISOLATED twin-proved → fact; twin-failed stays belief (not rejected)', () => {
   const clean = { clean: true, vulns: [], provenance: { source: 'OSV.dev', tier: 'A' as const, fetchedAt: '' } }
   assert.equal(buildEstablishment({ facts: facts(), osv: clean, twin: null }).verdict, 'belief')
-  assert.equal(buildEstablishment({ facts: facts(), osv: clean, twin: { status: 'proved', proved: true, installedVersion: '1.2.3' } }).verdict, 'fact')
+  assert.equal(
+    buildEstablishment({ facts: facts(), osv: clean, twin: { status: 'proved', proved: true, isolated: true, installedVersion: '1.2.3' } }).verdict,
+    'fact',
+  )
   const failed = buildEstablishment({ facts: facts(), osv: clean, twin: { status: 'failed', proved: false, reason: 'ERR_REQUIRE_ESM' } })
   assert.equal(failed.verdict, 'belief', 'a twin that did not reproduce must not mark an OSV-clean package unsafe')
+})
+
+test('gatePackage: only an ISOLATED twin proof yields fact; host smoke stays belief', () => {
+  const clean = { clean: true, vulns: [], provenance: { source: 'OSV.dev', tier: 'A' as const, fetchedAt: '' } }
+  const isolated = gatePackage({ facts: facts(), osv: clean, twin: { status: 'proved', proved: true, isolated: true, installedVersion: '1.2.3' } })
+  assert.equal(isolated.claim.epistemic, 'fact')
+  const host = gatePackage({ facts: facts(), osv: clean, twin: { status: 'proved', proved: true, isolated: false, installedVersion: '1.2.3' } })
+  assert.equal(host.claim.epistemic, 'belief', 'a host (non-isolated) smoke must never earn Tier-D fact')
+  assert.match(host.claim.warning ?? '', /HOST/i)
 })
 
 // ── TWIN ISOLATION (deterministic: these paths return before any runtime/install) ──

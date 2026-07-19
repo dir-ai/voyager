@@ -88,15 +88,19 @@ export function gatePackage(args: {
     warnings.push(`very new package (first published ~${Math.round(ageDays)}d ago) — supply-chain caution`)
   }
 
-  // ── Fact vs belief: a twin proof promotes to FACT (ground truth, Tier D) ────
+  // ── Fact vs belief: ONLY an ISOLATED twin proof promotes to FACT (Tier D) ────
+  // A smoke that ran on the host (VOYAGER_TWIN_HOST=1 escape hatch) is weaker
+  // evidence gathered in an unsafe way — it must never earn Tier-D confidence.
   let epistemic: VoyagerClaim['epistemic'] = 'belief'
-  if (twin?.proved) {
+  if (twin?.proved && twin.isolated) {
     epistemic = 'fact'
     provenance.push({
-      source: 'twin probe',
+      source: 'twin probe (isolated container)',
       tier: 'D',
       fetchedAt: new Date().toISOString(),
     })
+  } else if (twin?.proved && !twin.isolated) {
+    warnings.push('twin smoke passed on the HOST (not isolated) — stays a belief; use a container runtime for Tier-D proof')
   } else if (twin && twin.status !== 'skipped' && !twin.proved) {
     // The twin is a POSITIVE prover. Not reproducing does NOT make a package
     // unsafe — OSV governs safety. It just stays a BELIEF, with a note. (This

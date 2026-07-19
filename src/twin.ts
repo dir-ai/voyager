@@ -36,8 +36,10 @@ import type { PackageQuery } from './types.js'
 
 const execFileAsync = promisify(execFile)
 
-// The container image the smoke import runs in. Pinned to a small Node image;
-// overridable for air-gapped mirrors.
+// The container image the smoke import runs in. NOTE: the default is a TAG,
+// which is mutable — good enough for a smoke, but NOT a reproducibility pin.
+// For reproducible/auditable runs set VOYAGER_TWIN_IMAGE to an immutable digest
+// (node:22-alpine@sha256:…). The image used is recorded in TwinResult.image.
 const TWIN_IMAGE = process.env.VOYAGER_TWIN_IMAGE || 'node:22-alpine'
 
 // Env for the host INSTALL subprocess: only what npm needs, no API keys/secrets.
@@ -64,6 +66,9 @@ export interface TwinResult {
   isolated?: boolean
   /** Version actually installed (ground truth, may differ from the query). */
   installedVersion?: string
+  /** Container image the smoke ran in (auditable identity; pin a digest via
+   *  VOYAGER_TWIN_IMAGE=node:22-alpine@sha256:… for reproducible runs). */
+  image?: string
   reason?: string
   detail?: string
 }
@@ -76,17 +81,45 @@ const MAX_OUT = 4096
 const SAFE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i
 const SAFE_VERSION = /^[a-z0-9][a-z0-9-._+]*$/i
 
-/** Detect a container runtime — prefer rootless podman, then docker. */
+/**
+ * Detect a USABLE container runtime — prefer rootless podman, then docker.
+ * Probes `<rt> info` (daemon/machine reachable), not `--version`: a Docker CLI
+ * with a stopped daemon must count as unavailable, or the twin would fail later
+ * with a confusing error instead of a clean 'unsupported'.
+ */
 async function detectContainerRuntime(): Promise<'podman' | 'docker' | null> {
+  // Explicit override: force a runtime, or force "none" (useful to test the
+  // refusal path, or to disable containers deliberately on a machine that has one).
+  const forced = process.env.VOYAGER_TWIN_RUNTIME
+  if (forced === 'none') return null
+  if (forced === 'podman' || forced === 'docker') return forced
   for (const rt of ['podman', 'docker'] as const) {
     try {
-      await execFileAsync(rt, ['--version'], { timeout: 10_000, shell: false })
+      await execFileAsync(rt, ['info', '--format', '{{.}}'], { timeout: 15_000, shell: false, maxBuffer: 4 * 1024 * 1024 })
       return rt
     } catch {
-      /* not installed — try the next */
+      /* not installed, or daemon not running — try the next */
     }
   }
   return null
+}
+
+// Windows: npm is a .cmd shim, which execFile cannot launch bare (Node refuses
+// .cmd without a shell — CVE-2024-27980 mitigation → "spawn EINVAL"). shell:true
+// is safe here: every argv token is a fixed flag or a SAFE_NAME/SAFE_VERSION-
+// validated spec (no shell metacharacters possible).
+const IS_WIN = process.platform === 'win32'
+const NPM_CMD = IS_WIN ? 'npm.cmd' : 'npm'
+
+/** Uniform, information-dense failure detail (message/code/stderr tail). */
+function errDetail(e: unknown): string {
+  const x = e as { stderr?: string; stdout?: string; message?: string; code?: unknown; errno?: unknown }
+  const parts = [
+    typeof x.code === 'string' || typeof x.code === 'number' ? `code=${x.code}` : '',
+    (x.stderr ?? '').split('\n').filter(Boolean).slice(-3).join(' · '),
+    !x.stderr ? (x.message ?? '') : '',
+  ].filter(Boolean)
+  return parts.join(' · ').slice(0, 300)
 }
 
 /** The bounded require/import probe run inside the twin (CJS with an ESM fallback). */
@@ -137,18 +170,16 @@ export async function provePackageInTwin(pkg: PackageQuery, opts: { timeoutMs?: 
     await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'voyager-twin', private: true }), 'utf8')
 
     // 1) Install — no lifecycle scripts (RCE vector), no save, bounded. Download +
-    //    unpack only; the package's module code does NOT run here.
+    //    unpack only; the package's module code does NOT run here. shell only on
+    //    Windows (npm.cmd), with argv fully validated above.
     try {
-      await execFileAsync('npm', ['install', spec, '--no-save', '--ignore-scripts', '--no-audit', '--no-fund'], {
-        cwd: dir, timeout, maxBuffer: 4 * 1024 * 1024, env: installEnv(), shell: false,
+      await execFileAsync(NPM_CMD, ['install', spec, '--no-save', '--ignore-scripts', '--no-audit', '--no-fund'], {
+        cwd: dir, timeout, maxBuffer: 4 * 1024 * 1024, env: installEnv(), shell: IS_WIN,
       })
     } catch (e: unknown) {
-      const x = e as { stderr?: string; message?: string; killed?: boolean }
+      const x = e as { killed?: boolean }
       if (x.killed) return { status: 'timeout', proved: false, reason: `install timeout ${timeout}ms` }
-      return {
-        status: 'failed', proved: false, reason: 'install failed',
-        detail: (x.stderr ?? x.message ?? '').split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 300),
-      }
+      return { status: 'failed', proved: false, reason: 'install failed', detail: errDetail(e) }
     }
 
     const installedVersion = await readInstalledVersion(dir, pkg.name)
@@ -185,19 +216,19 @@ async function smokeInContainer(runtime: 'podman' | 'docker', dir: string, name:
     'node', '-e', smokeProbe(name),
   ]
   try {
-    const { stdout } = await execFileAsync(runtime, args, { timeout: 60_000, maxBuffer: 1 * 1024 * 1024, shell: false })
+    const { stdout } = await execFileAsync(runtime, args, { timeout: 120_000, maxBuffer: 1 * 1024 * 1024, shell: false })
     return /VOYAGER_TWIN_OK/.test(stdout)
-      ? { status: 'proved', proved: true }
-      : { status: 'failed', proved: false, reason: 'import not confirmed' }
+      ? { status: 'proved', proved: true, image: TWIN_IMAGE }
+      : { status: 'failed', proved: false, reason: 'import not confirmed', image: TWIN_IMAGE }
   } catch (e: unknown) {
-    const x = e as { stderr?: string; message?: string; killed?: boolean }
-    if (x.killed) return { status: 'timeout', proved: false, reason: 'container smoke timeout' }
-    const detail = (x.stderr ?? x.message ?? '').slice(0, MAX_OUT).split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 300)
+    const x = e as { killed?: boolean }
+    if (x.killed) return { status: 'timeout', proved: false, reason: 'container smoke timeout', image: TWIN_IMAGE }
+    const detail = errDetail(e)
     // A missing image / runtime error is a tool failure, not a package verdict.
-    if (/Unable to find image|no such image|pull access|cannot connect|permission denied/i.test(detail)) {
-      return { status: 'error', proved: false, reason: 'container runtime error', detail }
+    if (/Unable to find image|no such image|pull access|cannot connect|permission denied|error during connect/i.test(detail)) {
+      return { status: 'error', proved: false, reason: 'container runtime error', detail, image: TWIN_IMAGE }
     }
-    return { status: 'failed', proved: false, reason: 'import failed', detail }
+    return { status: 'failed', proved: false, reason: 'import failed', detail, image: TWIN_IMAGE }
   }
 }
 
@@ -211,11 +242,7 @@ async function smokeOnHost(dir: string, name: string): Promise<TwinResult> {
       ? { status: 'proved', proved: true, reason: 'host execution (VOYAGER_TWIN_HOST=1) — NOT isolated' }
       : { status: 'failed', proved: false, reason: 'import not confirmed (host)' }
   } catch (e: unknown) {
-    const x = e as { stderr?: string; message?: string }
-    return {
-      status: 'failed', proved: false, reason: 'import failed (host)',
-      detail: (x.stderr ?? x.message ?? '').slice(0, MAX_OUT).split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 300),
-    }
+    return { status: 'failed', proved: false, reason: 'import failed (host)', detail: errDetail(e) }
   }
 }
 

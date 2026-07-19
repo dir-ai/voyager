@@ -6,7 +6,7 @@
 // limit. A token is an OPTIONAL rate-limit boost, resolved Vault-first (provider
 // 'github') with VOYAGER_GITHUB_TOKEN / GITHUB_TOKEN as a DEV env fallback.
 
-import { voyagerFetchJson } from '../http.js'
+import { voyagerFetchJson, stripInjection } from '../http.js'
 import { withGateway } from '../gateway.js'
 import { resolveVoyagerKey } from '../keys.js'
 import type { VoyagerProvenance } from '../types.js'
@@ -54,7 +54,10 @@ export async function githubRepoSearch(intent: string, limit = 5): Promise<Githu
   const json = await withGateway('github', () => voyagerFetchJson<GhRepoSearchResponse>(url, { headers }))
   const hits: RepoHit[] = (json.items ?? []).map((r) => ({
     fullName: r.full_name ?? '',
-    description: r.description ?? null,
+    // Repo descriptions are OWNER-CONTROLLED text: sanitize at ingestion so the
+    // structured claims (brief.claims JSON, MCP output) never carry a raw
+    // injection payload — not only the rendered/framed surface.
+    description: r.description ? stripInjection(r.description) : null,
     stars: r.stargazers_count ?? 0,
     url: r.html_url ?? '',
     pushedAt: r.pushed_at ?? null,

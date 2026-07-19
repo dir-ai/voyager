@@ -91,11 +91,12 @@ export function buildEstablishment(args: {
   if (facts.deprecated) {
     steps.push({ role: 'skeptic', finding: `deprecated package: ${facts.deprecated.slice(0, 80)}`, pass: false })
   }
-  // Supply-chain provenance: a build attestation (npm SLSA) is a strong,
-  // verifiable origin signal. Its ABSENCE is not a block (most packages lack it),
-  // but its PRESENCE is a real positive — surfaced so the agent can prefer it.
+  // Supply-chain provenance: the registry ADVERTISES a build attestation (npm
+  // SLSA). Honest wording: we detect its presence, we do not yet verify the
+  // signature/transparency-log ourselves — so it is "advertised", not "verified".
+  // Absence is not a block (most packages lack it); presence is a real positive.
   if (facts.hasProvenance) {
-    steps.push({ role: 'skeptic', finding: 'build provenance attestation present (SLSA) — verifiable origin', pass: true })
+    steps.push({ role: 'skeptic', finding: 'build provenance attestation advertised by the registry (SLSA; signature not independently verified)', pass: true })
   }
   // Peer-dependency compatibility against the project's declared stack (the safe
   // "does it fit YOUR environment?" check — no install).
@@ -188,11 +189,14 @@ export async function establishPackage(
   let osv: OsvResult | null = null
   let osvError: string | undefined
   try {
-    // Pin OSV to the version that would actually be installed (pinned or latest),
-    // NOT the whole package — otherwise any package that EVER had a CVE (express,
-    // lodash, …) is falsely marked vulnerable. A missing latest means "not found",
-    // which the proposer already rejects.
-    osv = await osvCheck({ ...pkg, version: pkg.version ?? facts.latestVersion ?? undefined })
+    // Pin OSV to the version that would actually be installed, NOT the whole
+    // package — otherwise any package that EVER had a CVE (express, lodash, …)
+    // is falsely marked vulnerable. CRITICAL ordering: facts.latestVersion is the
+    // registry-RESOLVED concrete version of the requested ref, so it comes first.
+    // The raw pkg.version may be a dist-TAG (`latest`, `next`, `beta`) — sending
+    // that string to OSV verbatim would return zero matches for a non-version
+    // identifier: a silent false negative on a security check.
+    osv = await osvCheck({ ...pkg, version: facts.latestVersion ?? pkg.version ?? undefined })
   } catch (e) {
     osvError = (e as Error)?.message ?? 'OSV error'
   }

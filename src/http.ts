@@ -8,7 +8,7 @@
 //                           cannot OOM us by buffering before the timeout fires)
 //   5. injection-strip    — fetched content is DATA, never instruction
 
-import { readFileSync, writeFile, mkdirSync, rmSync } from 'node:fs'
+import { readFileSync, writeFile, mkdirSync, rmSync, rename, readdirSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -49,8 +49,11 @@ const CACHE = new Map<string, { at: number; value: unknown }>()
 const CACHE_MAX = 500
 
 const DISK_CACHE_OFF = process.env.VOYAGER_NO_CACHE === '1'
-const DISK_DIR = process.env.VOYAGER_CACHE_DIR || join(homedir() || tmpdir(), '.voyager', 'cache')
+// Schema-versioned subdirectory: a future format change bumps `v1` → old entries
+// are simply never read again (no stale-schema parsing across upgrades).
+const DISK_DIR = join(process.env.VOYAGER_CACHE_DIR || join(homedir() || tmpdir(), '.voyager', 'cache'), 'v1')
 let diskReady: boolean | null = null
+let writesSincePrune = 0
 
 function diskEnabled(): boolean {
   if (DISK_CACHE_OFF) return false
@@ -69,23 +72,56 @@ function diskPath(key: string): string {
   return join(DISK_DIR, createHash('sha256').update(key).digest('hex') + '.json')
 }
 
-function diskGet(key: string, ttl: number): unknown | undefined {
+function diskGet(key: string, ttl: number): { at: number; value: unknown } | undefined {
   if (!diskEnabled()) return undefined
   const p = diskPath(key)
   try {
     const { at, value } = JSON.parse(readFileSync(p, 'utf8')) as { at: number; value: unknown }
-    if (Date.now() - at < ttl) return value
+    if (Date.now() - at < ttl) return { at, value }
     rmSync(p, { force: true }) // expired — evict
   } catch {
-    /* miss / unreadable */
+    /* miss / unreadable (a corrupt file self-heals on the next write) */
   }
   return undefined
 }
 
+// Longest TTL any caller uses (registry facts: 10 min) — entries older than this
+// are dead for every possible reader and safe to prune.
+const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000
+
+function pruneDisk(): void {
+  try {
+    const now = Date.now()
+    for (const f of readdirSync(DISK_DIR)) {
+      const p = join(DISK_DIR, f)
+      try {
+        const { at } = JSON.parse(readFileSync(p, 'utf8')) as { at: number }
+        if (!Number.isFinite(at) || now - at > PRUNE_AFTER_MS) rmSync(p, { force: true })
+      } catch {
+        rmSync(p, { force: true }) // corrupt entry — remove
+      }
+    }
+  } catch {
+    /* prune is best-effort */
+  }
+}
+
 function diskSet(key: string, value: unknown): void {
   if (!diskEnabled()) return
-  // Fire-and-forget: a cache write must never block or throw into the request path.
-  writeFile(diskPath(key), JSON.stringify({ at: Date.now(), value }), () => {})
+  // ATOMIC: write a unique temp file then rename over the target, so a
+  // concurrent CLI writing the same key can never interleave into corrupt JSON.
+  const p = diskPath(key)
+  const tmp = `${p}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`
+  writeFile(tmp, JSON.stringify({ at: Date.now(), value }), (err) => {
+    if (err) return
+    rename(tmp, p, () => {})
+  })
+  // Opportunistic, bounded hygiene: every ~64 writes sweep expired/corrupt files
+  // so the directory cannot grow without bound.
+  if (++writesSincePrune >= 64) {
+    writesSincePrune = 0
+    pruneDisk()
+  }
 }
 
 function cacheGet(key: string, ttl: number): unknown | undefined {
@@ -94,8 +130,10 @@ function cacheGet(key: string, ttl: number): unknown | undefined {
   if (hit) CACHE.delete(key)
   const onDisk = diskGet(key, ttl)
   if (onDisk !== undefined) {
-    CACHE.set(key, { at: Date.now(), value: onDisk }) // promote to the fast tier
-    return onDisk
+    // Promote with the ORIGINAL timestamp — re-stamping would silently extend
+    // the entry's life by a whole extra TTL.
+    CACHE.set(key, { at: onDisk.at, value: onDisk.value })
+    return onDisk.value
   }
   return undefined
 }
@@ -280,6 +318,21 @@ const INJECTION_PATTERNS: RegExp[] = [
   /(泄露|泄漏|显示|打印).{0,8}(系统提示|系统提示词|密钥|秘密|凭据|令牌)/g,                        // ZH reveal secrets
 ]
 
+// Letter-spaced evasion: `i g n o r e  a l l …` slips past word patterns. A run
+// of single letters separated by 1 space (words separated by 2) is collapsed and
+// RE-SCANNED — stripped only when the collapsed text is actually an injection,
+// so legitimate letter sequences ("option a  b  c") survive untouched.
+const SPACED_RUN = /(?:[A-Za-z] {1,2}){4,}[A-Za-z]/g
+
+// Transient word-gap marker used only inside collapseSpacedRun (escaped code
+// point — this file stays pure ASCII).
+const MARK = '\u0001'
+
+function collapseSpacedRun(m: string): string {
+  // Double space = word gap → keep one space; single space between letters → drop.
+  return m.replace(/([A-Za-z]) {2,}/g, '$1' + MARK).replace(/ /g, '').split(MARK).join(' ')
+}
+
 // Structural exfil/obfuscation vectors handled outside the pattern loop.
 const HTML_COMMENT = /<!--[\s\S]*?-->/g            // <!-- system: ignore … --> hides a payload
 const MD_IMAGE = /!\[([^\]]*)\]\([^)]*\)/g          // ![alt](https://evil?x=secret) auto-loads → exfil
@@ -342,6 +395,16 @@ export function stripInjection(text: string, depth = 0): string {
       return decoded && stripInjection(decoded, depth + 1) !== decoded ? '[stripped-encoded]' : m
     })
   }
+  // Letter-spaced evasion (`i g n o r e  a l l …`): collapse each run and
+  // re-scan; strip only when the collapsed text is an actual injection.
+  out = out.replace(SPACED_RUN, (m) => {
+    const collapsed = collapseSpacedRun(m)
+    for (const re of INJECTION_PATTERNS) {
+      re.lastIndex = 0
+      if (re.test(collapsed)) return '[stripped]'
+    }
+    return m
+  })
   out = out.replace(FRAME_SENTINELS, '[stripped-sentinel]')
   for (const re of INJECTION_PATTERNS) out = out.replace(re, '[stripped]')
   out = out.replace(CONTROL_CHARS, ' ')

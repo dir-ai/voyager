@@ -52,6 +52,17 @@ test('MCP: initialize → list tools → check_package rejects an invalid name (
     // client can tell "could not verify" apart from "package is unsafe".
     assert.equal(res.result.isError, true)
     assert.ok(payload.error, 'the error channel must be populated on a tool failure')
+
+    // STRICT validation: an over-long name is REJECTED (isError), never silently
+    // truncated into a different subject.
+    const long = await s.request(4, 'tools/call', { name: 'check_package', arguments: { name: 'x'.repeat(500) } })
+    assert.equal(long.result.isError, true)
+    assert.match(long.result.content[0].text, /exceeds 214/)
+
+    // An invalid ecosystem is rejected, not coerced to npm.
+    const badEco = await s.request(5, 'tools/call', { name: 'check_package', arguments: { name: 'left-pad', ecosystem: 'cargo' } })
+    assert.equal(badEco.result.isError, true)
+    assert.match(badEco.result.content[0].text, /ecosystem/)
   } finally {
     s.child.kill()
     await once(s.child, 'exit').catch(() => {})
