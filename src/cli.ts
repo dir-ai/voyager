@@ -34,7 +34,7 @@ USAGE
 
   voyager brief "<query>" [--package name] [--discover "<intent>"]
                              [--search "<web query>"] [--docs <library>] [--twin] [--json]
-        Produce a cited, confidence-scored, injection-safe brief.
+        Produce a cited, confidence-scored, injection-hardened brief.
 
   voyager discover "<intent>"     GitHub repo discovery (Tier-A).
   voyager search "<query>"        Open-web search (Tier-C, needs a provider key).
@@ -43,9 +43,10 @@ USAGE
   voyager mcp                     Start the stdio MCP server.
   voyager help | --version
 
-The twin (--twin / VOYAGER_TWIN=1) runs \`npm install\` of the package in a
-disposable sandbox to promote a claim from BELIEF to twin-proved FACT. Enable it
-only on a trusted, single-tenant machine.`
+The twin (--twin / VOYAGER_TWIN=1) runs \`npm install\` + a smoke import of the
+package in a disposable sandbox — it proves installability + that the entrypoint
+loads, NOT that the package is safe, and it EXECUTES package code on the host.
+Enable it only on a trusted, single-tenant machine.`
 
 function printBrief(rendered: string, json: boolean, brief: unknown): void {
   if (json) console.log(JSON.stringify(brief, null, 2))

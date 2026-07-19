@@ -99,10 +99,16 @@ export async function voyagerRetrieve(
   }
 
   const claims: VoyagerClaim[] = []
+  // A requested package that is BLOCKED (rejected) or could not be verified (tool
+  // error) must sink the whole brief's `ok` — otherwise a web-search hit would
+  // paper over "the dependency you asked about is unsafe". Tracked separately
+  // from `claims` because a rejected package still emits a (cautionary) claim.
+  let requiredSubjectBlocked = false
 
   // ── Package establishment (adversarial: proposer → skeptic → judge) ──────────
   for (const pkg of opts.packages ?? []) {
     const est = await establishPackage(pkg, { proveInTwin: opts.proveInTwin, projectDeps: opts.projectDeps })
+    if (est.error || est.verdict === 'rejected') requiredSubjectBlocked = true
     if (est.claim) claims.push(est.claim)
     else notes.push(`package ${pkg.name} not established: ${est.steps[0]?.finding ?? 'error'}`)
   }
@@ -168,7 +174,10 @@ export async function voyagerRetrieve(
   return {
     query,
     claims: finalClaims,
-    ok: finalClaims.length > 0,
+    // `ok` = the brief is usable: it produced at least one claim AND no requested
+    // package was blocked or unverifiable. (A web-only brief with no packages is
+    // ok as long as it found something.)
+    ok: finalClaims.length > 0 && !requiredSubjectBlocked,
     notes,
     rendered: renderBrief(query, finalClaims, notes),
   }

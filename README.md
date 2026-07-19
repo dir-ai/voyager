@@ -5,7 +5,7 @@
 An AI coding agent that reaches the open internet gets a raw, unsigned,
 possibly-poisoned blob and feeds it straight into its own prompt. voyager
 sits in front of that: it turns a query into a **cited, confidence-scored,
-OSV-gated, injection-safe brief** — the only surface your model ever sees.
+OSV-gated, injection-hardened brief** — the only surface your model ever sees.
 
 Every claim carries its provenance and a calibrated confidence. Package
 recommendations pass a **fail-closed OSV vulnerability gate** and can be
@@ -55,7 +55,7 @@ const brief = await voyagerRetrieve('a safe date library', {
   packages: [{ name: 'date-fns', ecosystem: 'npm' }],
   discover: 'date library',
 })
-brief.rendered   // the injection-safe, framed text to feed a model
+brief.rendered   // the injection-hardened, framed text to feed a model
 brief.claims     // structured, cited, confidence-scored
 
 // Bring your own key store (default is env vars):

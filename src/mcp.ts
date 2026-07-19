@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * voyager MCP server (stdio). Gives an agent a verified, cited, OSV-gated,
- * injection-safe brief instead of a raw web response — and a package safety
+ * injection-hardened brief instead of a raw web response — and a package safety
  * check before it recommends a dependency.
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -34,7 +34,7 @@ const TOOLS = [
   {
     name: 'retrieve',
     description:
-      'Turn a query into a cited, confidence-scored, injection-safe BRIEF (the only surface you should feed a model). Combine package verification, GitHub discovery, canonical docs, and open-web search — each cross-referenced. Returns the rendered brief + structured claims.',
+      'Turn a query into a cited, confidence-scored, injection-hardened BRIEF (the only surface you should feed a model). Combine package verification, GitHub discovery, canonical docs, and open-web search — each cross-referenced. Returns the rendered brief + structured claims.',
     inputSchema: {
       type: 'object',
       properties: {

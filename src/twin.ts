@@ -2,20 +2,30 @@
 //
 // THE KILLER IDEA, in its smallest honest form: before recommending a package,
 // don't trust the registry — REPRODUCE it. Install the package into a disposable
-// sandbox and smoke-import it. Pass → the claim is a twin-proved FACT. Skip/fail
-// → it stays a BELIEF (still OSV-gated), never silently promoted.
+// sandbox and smoke-import it. What a PASS proves is narrow: the package installs
+// and its entrypoint LOADS ("runtime smoke passed"). It is NOT a safety proof —
+// it does not establish the package is benign. Pass promotes the claim from
+// BELIEF to a twin-reproduced result; skip/fail keeps it a BELIEF (still
+// OSV-gated), never silently promoted.
 //
-// ── Security ─────────────────────────────────────────────────────────────────
-//  1. OPT-IN. Requires VOYAGER_TWIN=1 — set ONLY on a trusted, single-tenant
-//     or local machine (it runs `npm install` of the queried package). Default
-//     OFF → returns 'skipped', so a claim stays an OSV-gated BELIEF.
-//  2. ISOLATED temp dir under os.tmpdir()/.voyager-twin/, installed with
-//     --no-save --ignore-scripts (no lifecycle-script RCE), hard timeout,
-//     always cleaned up.
-//  3. SANITIZED env (sandboxEnv): only what npm needs — nothing to exfiltrate.
-//  4. SMOKE only — a bounded require()/import() of the installed package; no
-//     arbitrary code beyond npm's install of a named, OSV-cleared package.
-// A clean seam to later swap npm-in-tmp for `podman run` (a real container).
+// ── Security — READ THIS ──────────────────────────────────────────────────────
+// The twin EXECUTES the package's code ON THE HOST. `--ignore-scripts` blocks
+// npm lifecycle scripts, but the smoke import() still runs the package's
+// top-level module code with the invoking user's privileges: it CAN open
+// sockets, spawn processes, and read the user's files. sandboxEnv() scrubs API
+// keys/secrets from the child env, but HOME/USERPROFILE are passed (npm needs
+// them) — so a hostile package can still read ~/.ssh, saved credentials, etc.
+// "Nothing to exfiltrate" would be false; the isolation here is process-level,
+// not OS-level.
+//  1. OPT-IN and load-bearing: requires VOYAGER_TWIN=1 — enable ONLY on a
+//     trusted, single-tenant machine. Default OFF → returns 'skipped'.
+//  2. ISOLATED temp dir under os.tmpdir()/.voyager-twin/, --no-save
+//     --ignore-scripts, hard timeout, always cleaned up.
+//  3. SANITIZED env (sandboxEnv): only what npm needs; no API keys/secrets.
+//  4. SMOKE only — a bounded require()/import() of the installed package.
+// The real fix is a rootless container (network off, read-only FS, no HOME,
+// seccomp) — a planned swap of npm-in-tmp for `podman run`. Until then the
+// opt-in/trusted-machine requirement is the actual boundary, not a nicety.
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -28,8 +38,10 @@ import type { PackageQuery } from './types.js'
 
 const execFileAsync = promisify(execFile)
 
-// Sanitized env for the install/smoke subprocess: pass only what npm needs to
-// run, and nothing to exfiltrate (no API keys, no secrets from the parent env).
+// Env for the install/smoke subprocess: pass only what npm needs, and drop API
+// keys/secrets. NOTE: HOME/USERPROFILE are still passed (npm needs them), so this
+// is NOT an exfiltration boundary — a hostile package could read user files. The
+// opt-in trusted-machine requirement is the real boundary until containerization.
 function sandboxEnv(): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH,

@@ -101,6 +101,19 @@ test('buildEstablishment: not-found → rejected', () => {
   const e = buildEstablishment({ facts: facts({ latestVersion: null }), osv: null, twin: null })
   assert.equal(e.verdict, 'rejected')
 })
+test('buildEstablishment: OSV outage on an otherwise-clean package → error channel (unknown, not a rejection)', () => {
+  const e = buildEstablishment({ facts: facts(), osv: null, osvError: 'timeout', twin: null })
+  // Fail-closed: still not recommended — but a security-source OUTAGE is "could
+  // not verify" (CLI exit 2), never a false "this package is rejected" (exit 1).
+  assert.ok(e.error, 'OSV unavailability must set the tool-error channel')
+  assert.match(e.error ?? '', /OSV unavailable/i)
+})
+test('buildEstablishment: a REAL vuln stays a rejection WITHOUT the error channel (exit 1, not 2)', () => {
+  const osv = { clean: false, vulns: [{ id: 'CVE-x', summary: '' }], provenance: { source: 'OSV.dev', tier: 'A' as const, fetchedAt: '' } }
+  const e = buildEstablishment({ facts: facts(), osv, twin: null })
+  assert.equal(e.verdict, 'rejected')
+  assert.ok(!e.error, 'a real vulnerability is a verdict on the package, not a tool error')
+})
 test('buildEstablishment: clean OSV → belief; twin-proved → fact; twin-failed stays belief (not rejected)', () => {
   const clean = { clean: true, vulns: [], provenance: { source: 'OSV.dev', tier: 'A' as const, fetchedAt: '' } }
   assert.equal(buildEstablishment({ facts: facts(), osv: clean, twin: null }).verdict, 'belief')

@@ -56,6 +56,9 @@ interface PypiResponse {
     yanked_reason?: string | null
   }
   releases?: Record<string, Array<{ upload_time_iso_8601?: string; yanked?: boolean }>>
+  // Present on the per-version endpoint (/pypi/{name}/{version}/json): the files
+  // for that specific version, carrying its upload time.
+  urls?: Array<{ upload_time_iso_8601?: string }>
 }
 
 async function npmFacts(pkg: PackageQuery): Promise<PackageFacts> {
@@ -112,19 +115,29 @@ async function npmFacts(pkg: PackageQuery): Promise<PackageFacts> {
   }
 }
 
-async function pypiFacts(name: string): Promise<PackageFacts> {
-  const json = await withGateway('pypi', () => voyagerFetchJson<PypiResponse>(`https://pypi.org/pypi/${encodeURIComponent(name)}/json`, { cacheTtlMs: 600_000, maxBytes: 5_000_000 }))
+async function pypiFacts(pkg: PackageQuery): Promise<PackageFacts> {
+  // PEP 503: PyPI project names are case-insensitive and treat runs of -, _, .
+  // as equivalent. Normalize for the URL so `Requests`, `requests` and
+  // `re-quests` resolve to the same project.
+  const norm = pkg.name.toLowerCase().replace(/[-_.]+/g, '-')
+  // Honor the requested version: hit the per-version endpoint so the facts
+  // describe the SAME subject OSV is asked about (not always latest). Previously
+  // this ignored pkg.version and returned latest → the verdict mixed two versions.
+  const url = pkg.version
+    ? `https://pypi.org/pypi/${encodeURIComponent(norm)}/${encodeURIComponent(pkg.version)}/json`
+    : `https://pypi.org/pypi/${encodeURIComponent(norm)}/json`
+  const json = await withGateway('pypi', () => voyagerFetchJson<PypiResponse>(url, { cacheTtlMs: 600_000, maxBytes: 5_000_000 }))
   const info = json.info ?? {}
-  const version = info.version ?? null
-  const lastPublished = version
-    ? json.releases?.[version]?.[0]?.upload_time_iso_8601 ?? null
-    : null
+  const version = pkg.version ?? info.version ?? null
+  const lastPublished =
+    json.urls?.[0]?.upload_time_iso_8601 ??
+    (version ? json.releases?.[version]?.[0]?.upload_time_iso_8601 ?? null : null)
   // Earliest upload across all releases — PyPI has no single "created" field.
   const allTimes = Object.values(json.releases ?? {}).flatMap((rs) => rs.map((r) => r.upload_time_iso_8601)).filter(Boolean) as string[]
   const firstPublished = allTimes.length ? allTimes.sort()[0] : null
   const homepage = info.home_page || info.project_urls?.Homepage || null
   return {
-    name,
+    name: pkg.name,
     ecosystem: 'pypi',
     latestVersion: version,
     license: info.license ?? null,
@@ -137,7 +150,7 @@ async function pypiFacts(name: string): Promise<PackageFacts> {
     provenance: {
       source: 'PyPI',
       tier: 'A',
-      url: `https://pypi.org/project/${name}/`,
+      url: `https://pypi.org/project/${norm}/`,
       fetchedAt: new Date().toISOString(),
     },
   }
@@ -148,5 +161,5 @@ export async function packageFacts(pkg: PackageQuery): Promise<PackageFacts> {
   if (!VALID_PACKAGE_NAME.test(pkg.name)) {
     throw new Error(`invalid package name: ${pkg.name}`)
   }
-  return pkg.ecosystem === 'pypi' ? pypiFacts(pkg.name) : npmFacts(pkg)
+  return pkg.ecosystem === 'pypi' ? pypiFacts(pkg) : npmFacts(pkg)
 }

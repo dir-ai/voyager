@@ -126,6 +126,16 @@ export function buildEstablishment(args: {
     claim.confidence = Math.min(claim.confidence, 0.55)
   }
 
+  // Distinguish "could not verify" from "package is unsafe". If the ONLY reason
+  // we won't recommend is that OSV was unreachable — the package exists, is not
+  // deprecated, and no vulnerability was actually found — that is UNKNOWN, not a
+  // rejection. Surface it on the error channel so the CLI exits 2: fail-closed
+  // policy still declines to recommend, but a security-source outage must never
+  // be reported as "this package is rejected" (→ a false exit-1 vuln signal).
+  if (!recommended && osvError && facts.latestVersion && !facts.deprecated && (!osv || osv.clean)) {
+    return { verdict: 'rejected', claim, steps, error: `OSV unavailable — could not verify: ${osvError}` }
+  }
+
   const verdict: EstablishVerdict = !recommended ? 'rejected' : claim.epistemic === 'fact' ? 'fact' : 'belief'
   return { verdict, claim, steps }
 }
