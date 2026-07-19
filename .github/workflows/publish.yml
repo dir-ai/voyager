@@ -23,15 +23,21 @@ jobs:
       # future dir-ai/* repo publish with zero per-package setup. Provenance is
       # still attached (id-token: write above). If NPM_TOKEN is absent, OIDC
       # trusted publishing is used instead (configure it on npmjs.com).
-      - name: Publish to npm (provenance)
+      - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          # Fail loudly if the secret didn't reach the job (empty token).
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN secret is empty/not visible to this repo — set it as an org (All repositories) or repo secret."
+            exit 1
+          fi
           V=$(node -p "require('./package.json').version")
           if npm view "@dir-ai/voyager@$V" version >/dev/null 2>&1; then
             echo "@dir-ai/voyager@$V already on npm — skipping"
           else
-            npm publish --provenance --access public
+            # Provenance temporarily off to isolate a first-publish auth issue; re-enable later.
+            npm publish --access public
           fi
       - name: Sync server.json version to the tag
         run: |
