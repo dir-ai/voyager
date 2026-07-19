@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+/**
+ * provenator CLI — verify a package or produce a cited, OSV-gated brief.
+ */
+import { provenatorRetrieve } from './index.js'
+import { establishPackage } from './establish.js'
+import { resolveProvenatorKey, type KeyProvider } from './keys.js'
+import type { PackageQuery } from './types.js'
+import { VERSION } from './version.js'
+
+function parseArgs(argv: string[]): { flags: Record<string, string | boolean>; positionals: string[] } {
+  const boolean = new Set(['twin', 'json'])
+  const flags: Record<string, string | boolean> = {}
+  const positionals: string[] = []
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a.startsWith('--')) {
+      const key = a.slice(2)
+      const next = argv[i + 1]
+      if (!boolean.has(key) && next !== undefined && !next.startsWith('--')) { flags[key] = next; i++ }
+      else flags[key] = true
+    } else positionals.push(a)
+  }
+  return { flags, positionals }
+}
+
+const HELP = `provenator v${VERSION} — the verified-brief organ for coding agents
+
+USAGE
+  provenator check <name> [--ecosystem npm|pypi] [--version V] [--twin] [--json]
+        Verify a package: registry facts + OSV vuln gate (+ optional twin reproduce).
+        Exit 1 if NOT recommended — a natural CI gate against unsafe deps.
+
+  provenator brief "<query>" [--package name] [--discover "<intent>"]
+                             [--search "<web query>"] [--docs <library>] [--twin] [--json]
+        Produce a cited, confidence-scored, injection-safe brief.
+
+  provenator discover "<intent>"     GitHub repo discovery (Tier-A).
+  provenator search "<query>"        Open-web search (Tier-C, needs a provider key).
+  provenator docs <library> [--topic <t>]   Canonical docs (Tier-B).
+  provenator doctor                  Which source keys are configured.
+  provenator mcp                     Start the stdio MCP server.
+  provenator help | --version
+
+The twin (--twin / PROVENATOR_TWIN=1) runs \`npm install\` of the package in a
+disposable sandbox to promote a claim from BELIEF to twin-proved FACT. Enable it
+only on a trusted, single-tenant machine.`
+
+function printBrief(rendered: string, json: boolean, brief: unknown): void {
+  if (json) console.log(JSON.stringify(brief, null, 2))
+  else console.log(rendered)
+}
+
+async function main(): Promise<number> {
+  const [cmd, ...rest] = process.argv.slice(2)
+  const { flags, positionals } = parseArgs(rest)
+  const json = flags.json === true
+  const twin = flags.twin === true || process.env.PROVENATOR_TWIN === '1'
+
+  switch (cmd) {
+    case undefined:
+    case 'help':
+    case '--help':
+    case '-h':
+      console.log(HELP)
+      return 0
+    case '--version':
+    case 'version':
+      console.log(VERSION)
+      return 0
+
+    case 'check': {
+      const name = positionals[0]
+      if (!name) { console.error('check needs a package name.'); return 2 }
+      const ecosystem = (flags.ecosystem === 'pypi' ? 'pypi' : 'npm') as PackageQuery['ecosystem']
+      const pkg: PackageQuery = { name, ecosystem, version: typeof flags.version === 'string' ? flags.version : undefined }
+      const est = await establishPackage(pkg, { proveInTwin: twin })
+      if (json) { console.log(JSON.stringify(est, null, 2)); return est.verdict === 'rejected' ? 1 : 0 }
+      const c = est.claim
+      console.log(`${name} (${ecosystem}) — verdict: ${est.verdict.toUpperCase()}`)
+      if (c) {
+        console.log(`  ${c.statement}`)
+        console.log(`  confidence ${Math.round(c.confidence * 100)}% · sources: ${c.provenance.map((p) => `${p.source}[${p.tier}]`).join(', ')}`)
+        if (c.warning) console.log(`  ⚠ ${c.warning}`)
+      }
+      for (const s of est.steps) console.log(`  ${s.pass ? '✓' : '✗'} ${s.role}: ${s.finding}`)
+      // Exit 1 when the package is not safe to recommend.
+      return est.verdict === 'rejected' ? 1 : 0
+    }
+
+    case 'brief': {
+      const query = positionals[0]
+      if (!query) { console.error('brief needs a query.'); return 2 }
+      const packages: PackageQuery[] = typeof flags.package === 'string'
+        ? flags.package.split(',').map((n) => ({ name: n.trim(), ecosystem: 'npm' as const }))
+        : []
+      const brief = await provenatorRetrieve(query, {
+        packages,
+        discover: typeof flags.discover === 'string' ? flags.discover : undefined,
+        search: typeof flags.search === 'string' ? flags.search : undefined,
+        docs: typeof flags.docs === 'string' ? flags.docs : undefined,
+        docsTopic: typeof flags.topic === 'string' ? flags.topic : undefined,
+        proveInTwin: twin,
+      })
+      printBrief(brief.rendered, json, brief)
+      return brief.ok ? 0 : 1
+    }
+
+    case 'discover': {
+      const q = positionals[0]
+      if (!q) { console.error('discover needs an intent query.'); return 2 }
+      const brief = await provenatorRetrieve(q, { discover: q })
+      printBrief(brief.rendered, json, brief)
+      return brief.ok ? 0 : 1
+    }
+
+    case 'search': {
+      const q = positionals[0]
+      if (!q) { console.error('search needs a query.'); return 2 }
+      const brief = await provenatorRetrieve(q, { search: q })
+      printBrief(brief.rendered, json, brief)
+      return brief.ok ? 0 : 1
+    }
+
+    case 'docs': {
+      const lib = positionals[0]
+      if (!lib) { console.error('docs needs a library name.'); return 2 }
+      const brief = await provenatorRetrieve(lib, { docs: lib, docsTopic: typeof flags.topic === 'string' ? flags.topic : undefined })
+      printBrief(brief.rendered, json, brief)
+      return brief.ok ? 0 : 1
+    }
+
+    case 'doctor': {
+      console.log('provenator doctor')
+      console.log('  Tier-A (zero-key): github (unauth, rate-limited), npm, pypi, osv — always available')
+      const providers: KeyProvider[] = ['github', 'tavily', 'exa', 'apify', 'context7']
+      for (const p of providers) {
+        const k = await resolveProvenatorKey(p)
+        console.log(`  ${p.padEnd(9)}: ${k ? 'key configured' : 'no key (source no-ops)'}`)
+      }
+      console.log(`  twin (npm install probe): ${process.env.PROVENATOR_TWIN === '1' ? 'ENABLED' : 'off (set PROVENATOR_TWIN=1 on a trusted machine)'}`)
+      return 0
+    }
+
+    case 'mcp': {
+      const { startMcpServer } = await import('./mcp.js')
+      await startMcpServer()
+      return new Promise<number>(() => {})
+    }
+
+    default:
+      console.error(`Unknown command: ${cmd}\n`)
+      console.log(HELP)
+      return 2
+  }
+}
+
+main().then((code) => process.exit(code)).catch((err) => {
+  console.error(err instanceof Error ? err.stack ?? err.message : String(err))
+  process.exit(1)
+})

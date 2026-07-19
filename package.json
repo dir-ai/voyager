@@ -1,0 +1,63 @@
+{
+  "name": "provenator",
+  "version": "1.0.0",
+  "description": "The verified-brief organ for coding agents: turns a query into a cited, confidence-scored, OSV-gated, injection-safe brief — never a raw web response. CLI, library, and MCP server.",
+  "type": "module",
+  "license": "MIT",
+  "author": "dir-ai",
+  "homepage": "https://github.com/dir-ai/provenator#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dir-ai/provenator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dir-ai/provenator/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "retrieval",
+    "rag",
+    "provenance",
+    "osv",
+    "supply-chain",
+    "prompt-injection",
+    "mcp",
+    "model-context-protocol",
+    "package-verification"
+  ],
+  "mcpName": "io.github.dir-ai/provenator",
+  "bin": {
+    "provenator": "dist/cli.js",
+    "provenator-mcp": "dist/mcp.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "server.json",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
+    "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

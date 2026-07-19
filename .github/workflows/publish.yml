@@ -1,0 +1,72 @@
+name: publish
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm install -g npm@latest
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - name: Publish to npm (provenance via trusted publishing)
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "provenator@$V" version >/dev/null 2>&1; then
+            echo "provenator@$V already on npm — skipping"
+          else
+            npm publish --provenance --access public
+          fi
+      - name: Sync server.json version to the tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          jq --arg v "$VERSION" '.version=$v | .packages[0].version=$v' server.json > server.tmp && mv server.tmp server.json
+      - name: Install mcp-publisher
+        run: curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: Authenticate to the MCP registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server to the MCP registry
+        run: ./mcp-publisher publish
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (amd64) for smoke
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: provenator:smoke
+      - name: Smoke — help renders inside the image
+        run: docker run --rm provenator:smoke --version
+      - name: Version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/dir-ai/provenator:${{ steps.ver.outputs.version }}
+            ghcr.io/dir-ai/provenator:latest
