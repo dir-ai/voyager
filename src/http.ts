@@ -1,4 +1,4 @@
-// provenator — guarded HTTP. EVERY outbound call goes through here. This is the
+// voyager — guarded HTTP. EVERY outbound call goes through here. This is the
 // single egress choke point where the security model is enforced:
 //   1. egress allowlist  — only the trusted hosts in config.ts
 //   2. https-only        — no plaintext, no file://, no localhost SSRF
@@ -8,16 +8,16 @@
 //                           cannot OOM us by buffering before the timeout fires)
 //   5. injection-strip    — fetched content is DATA, never instruction
 
-import { isEgressAllowed, PROVENATOR_FETCH_TIMEOUT_MS, PROVENATOR_MAX_RESPONSE_BYTES } from './config.js'
+import { isEgressAllowed, VOYAGER_FETCH_TIMEOUT_MS, VOYAGER_MAX_RESPONSE_BYTES } from './config.js'
 
-export class ProvenatorEgressError extends Error {
+export class VoyagerEgressError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'ProvenatorEgressError'
+    this.name = 'VoyagerEgressError'
   }
 }
 
-export interface ProvenatorFetchInit {
+export interface VoyagerFetchInit {
   method?: 'GET' | 'POST'
   /** Extra request headers (e.g. Authorization for an authenticated GitHub call). */
   headers?: Record<string, string>
@@ -27,7 +27,7 @@ export interface ProvenatorFetchInit {
   /** When set, cache this JSON response for N ms keyed by method+url+body. Use
    *  only for idempotent Tier-A facts (npm/pypi/osv) — never intent-specific search. */
   cacheTtlMs?: number
-  /** Per-call response byte cap. Defaults to PROVENATOR_MAX_RESPONSE_BYTES. Raise
+  /** Per-call response byte cap. Defaults to VOYAGER_MAX_RESPONSE_BYTES. Raise
    *  it for a trusted structured source whose payloads are legitimately large
    *  (a full npm packument for a popular package easily exceeds 512KB). */
   maxBytes?: number
@@ -63,13 +63,13 @@ export function assertEgressAllowed(rawUrl: string): URL {
   try {
     url = new URL(rawUrl)
   } catch {
-    throw new ProvenatorEgressError(`invalid URL: ${rawUrl}`)
+    throw new VoyagerEgressError(`invalid URL: ${rawUrl}`)
   }
   if (url.protocol !== 'https:') {
-    throw new ProvenatorEgressError(`https only (blocked: ${url.protocol}//${url.hostname})`)
+    throw new VoyagerEgressError(`https only (blocked: ${url.protocol}//${url.hostname})`)
   }
   if (!isEgressAllowed(url.hostname)) {
-    throw new ProvenatorEgressError(`host not on the provenator allowlist: ${url.hostname}`)
+    throw new VoyagerEgressError(`host not on the voyager allowlist: ${url.hostname}`)
   }
   return url
 }
@@ -84,12 +84,12 @@ async function readBounded(res: Response, maxBytes: number): Promise<string> {
   const declared = Number(res.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
     await res.body?.cancel().catch(() => {})
-    throw new ProvenatorEgressError(`response too large (declared ${declared}B > ${maxBytes}B) — refused`)
+    throw new VoyagerEgressError(`response too large (declared ${declared}B > ${maxBytes}B) — refused`)
   }
   const reader = res.body?.getReader()
   if (!reader) {
     const buf = new Uint8Array(await res.arrayBuffer())
-    if (buf.byteLength > maxBytes) throw new ProvenatorEgressError(`response too large (${buf.byteLength}B > ${maxBytes}B) — refused`)
+    if (buf.byteLength > maxBytes) throw new VoyagerEgressError(`response too large (${buf.byteLength}B > ${maxBytes}B) — refused`)
     return new TextDecoder('utf-8').decode(buf)
   }
   const chunks: Uint8Array[] = []
@@ -103,7 +103,7 @@ async function readBounded(res: Response, maxBytes: number): Promise<string> {
         // Graceful cancel only — do NOT also abort the controller (racing the
         // two tears down the stream twice and can crash libuv on Windows).
         await reader.cancel().catch(() => {})
-        throw new ProvenatorEgressError(`response too large (>${maxBytes}B, streamed) — refused`)
+        throw new VoyagerEgressError(`response too large (>${maxBytes}B, streamed) — refused`)
       }
       chunks.push(value)
     }
@@ -115,9 +115,9 @@ async function readBounded(res: Response, maxBytes: number): Promise<string> {
 }
 
 /** Fetch JSON from an allowlisted host, with timeout + streamed size cap. */
-export async function provenatorFetchJson<T = unknown>(
+export async function voyagerFetchJson<T = unknown>(
   rawUrl: string,
-  init: ProvenatorFetchInit = {},
+  init: VoyagerFetchInit = {},
 ): Promise<T> {
   const url = assertEgressAllowed(rawUrl)
   const cacheKey = init.cacheTtlMs ? `${init.method ?? 'GET'} ${url.href} ${init.body ? JSON.stringify(init.body) : ''}` : ''
@@ -126,13 +126,13 @@ export async function provenatorFetchJson<T = unknown>(
     if (cached !== undefined) return cached as T
   }
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), init.timeoutMs ?? PROVENATOR_FETCH_TIMEOUT_MS)
+  const timeout = setTimeout(() => controller.abort(), init.timeoutMs ?? VOYAGER_FETCH_TIMEOUT_MS)
   try {
     const res = await fetch(url, {
       method: init.method ?? 'GET',
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'provenator/1 (+verified-knowledge-organ)',
+        'User-Agent': 'voyager/1 (+verified-knowledge-organ)',
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...(init.headers ?? {}),
       },
@@ -141,7 +141,7 @@ export async function provenatorFetchJson<T = unknown>(
       redirect: 'error', // never follow a redirect off the allowlist
     })
     if (!res.ok) throw new Error(`${url.hostname} responded ${res.status}`)
-    const text = await readBounded(res, init.maxBytes ?? PROVENATOR_MAX_RESPONSE_BYTES)
+    const text = await readBounded(res, init.maxBytes ?? VOYAGER_MAX_RESPONSE_BYTES)
     const parsed = JSON.parse(text) as T
     if (cacheKey) cacheSet(cacheKey, parsed)
     return parsed
@@ -151,26 +151,26 @@ export async function provenatorFetchJson<T = unknown>(
 }
 
 /** Fetch TEXT from an allowlisted host (Tier-B docs), then injection-strip it. */
-export async function provenatorFetchText(
+export async function voyagerFetchText(
   rawUrl: string,
-  init: ProvenatorFetchInit = {},
+  init: VoyagerFetchInit = {},
 ): Promise<string> {
   const url = assertEgressAllowed(rawUrl)
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), init.timeoutMs ?? PROVENATOR_FETCH_TIMEOUT_MS)
+  const timeout = setTimeout(() => controller.abort(), init.timeoutMs ?? VOYAGER_FETCH_TIMEOUT_MS)
   try {
     const res = await fetch(url, {
       method: init.method ?? 'GET',
       headers: {
         Accept: 'text/plain, text/markdown, text/html;q=0.8, */*;q=0.5',
-        'User-Agent': 'provenator/1 (+verified-knowledge-organ)',
+        'User-Agent': 'voyager/1 (+verified-knowledge-organ)',
         ...(init.headers ?? {}),
       },
       signal: controller.signal,
       redirect: 'error',
     })
     if (!res.ok) throw new Error(`${url.hostname} responded ${res.status}`)
-    const text = await readBounded(res, init.maxBytes ?? PROVENATOR_MAX_RESPONSE_BYTES)
+    const text = await readBounded(res, init.maxBytes ?? VOYAGER_MAX_RESPONSE_BYTES)
     return stripInjection(text)
   } finally {
     clearTimeout(timeout)

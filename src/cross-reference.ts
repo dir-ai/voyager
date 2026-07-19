@@ -1,6 +1,6 @@
-// Provenator — automated cross-reference. Retrieval policy §5.3: a Tier-C (open-web,
+// Voyager — automated cross-reference. Retrieval policy §5.3: a Tier-C (open-web,
 // low-trust) claim must be CONFIRMED by an A/B source before it's trusted. Here
-// we do it deterministically: when a web claim names a package/repo that Provenator
+// we do it deterministically: when a web claim names a package/repo that Voyager
 // ALSO verified through a Tier-A source, the web claim is corroborated.
 //
 //  - POSITIVE anchor (exists, OSV-clean, not deprecated) → upgrade the web claim
@@ -11,7 +11,7 @@
 //
 // Pure + side-effect-free → unit-testable without the network.
 
-import type { ProvenatorClaim } from './types.js'
+import type { VoyagerClaim } from './types.js'
 
 /** An identifying token a Tier-A/B claim asserts (a package or repo name). */
 export interface CrossRefAnchor {
@@ -19,11 +19,11 @@ export interface CrossRefAnchor {
   /** False when Tier-A flagged it (vuln/deprecated/not-found). */
   positive: boolean
   source: string
-  provenance: ProvenatorClaim['provenance']
+  provenance: VoyagerClaim['provenance']
 }
 
 /** Extract anchors from the non-Tier-C claims already in the brief. */
-export function anchorsFromClaims(claims: ProvenatorClaim[]): CrossRefAnchor[] {
+export function anchorsFromClaims(claims: VoyagerClaim[]): CrossRefAnchor[] {
   const anchors: CrossRefAnchor[] = []
   for (const c of claims) {
     if (c.provenance.some((p) => p.tier === 'C')) continue // only A/B anchor
@@ -49,7 +49,7 @@ function mentions(statement: string, token: string): boolean {
  * non-web claims pass through untouched. Each web claim is upgraded (positive
  * anchor), downgraded (negative anchor), or left unconfirmed (no anchor).
  */
-export function crossReferenceClaims(claims: ProvenatorClaim[]): ProvenatorClaim[] {
+export function crossReferenceClaims(claims: VoyagerClaim[]): VoyagerClaim[] {
   const anchors = anchorsFromClaims(claims)
   if (!anchors.length) return claims
 

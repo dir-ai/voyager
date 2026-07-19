@@ -1,18 +1,18 @@
-// Provenator Tier-A source — GitHub REST API (repo + code + release search).
+// Voyager Tier-A source — GitHub REST API (repo + code + release search).
 // Structured facts: which repos exist for an intent, their stars/activity, and
 // the latest release of a given repo (the breaking-change signal).
 //
 // AUTH: zero-key by default — unauthenticated search works at a lower rate
 // limit. A token is an OPTIONAL rate-limit boost, resolved Vault-first (provider
-// 'github') with PROVENATOR_GITHUB_TOKEN / GITHUB_TOKEN as a DEV env fallback.
+// 'github') with VOYAGER_GITHUB_TOKEN / GITHUB_TOKEN as a DEV env fallback.
 
-import { provenatorFetchJson } from '../http.js'
+import { voyagerFetchJson } from '../http.js'
 import { withGateway } from '../gateway.js'
-import { resolveProvenatorKey } from '../keys.js'
-import type { ProvenatorProvenance } from '../types.js'
+import { resolveVoyagerKey } from '../keys.js'
+import type { VoyagerProvenance } from '../types.js'
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const tok = await resolveProvenatorKey('github')
+  const tok = await resolveVoyagerKey('github')
   return {
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
@@ -32,7 +32,7 @@ export interface RepoHit {
 
 export interface GithubSearchResult {
   hits: RepoHit[]
-  provenance: ProvenatorProvenance
+  provenance: VoyagerProvenance
 }
 
 interface GhRepoSearchResponse {
@@ -51,7 +51,7 @@ export async function githubRepoSearch(intent: string, limit = 5): Promise<Githu
   const q = encodeURIComponent(intent.slice(0, 200))
   const url = `https://api.github.com/search/repositories?q=${q}&sort=stars&order=desc&per_page=${Math.min(limit, 10)}`
   const headers = await authHeaders()
-  const json = await withGateway('github', () => provenatorFetchJson<GhRepoSearchResponse>(url, { headers }))
+  const json = await withGateway('github', () => voyagerFetchJson<GhRepoSearchResponse>(url, { headers }))
   const hits: RepoHit[] = (json.items ?? []).map((r) => ({
     fullName: r.full_name ?? '',
     description: r.description ?? null,
@@ -78,7 +78,7 @@ export interface ReleaseFacts {
   /** Release notes body — the breaking-change source. Truncated + untrusted. */
   body: string | null
   url: string | null
-  provenance: ProvenatorProvenance
+  provenance: VoyagerProvenance
 }
 
 interface GhReleaseResponse {
@@ -97,7 +97,7 @@ interface GhReleaseResponse {
 export async function githubLatestRelease(owner: string, repo: string): Promise<ReleaseFacts> {
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`
   const headers = await authHeaders()
-  const json = await withGateway('github', () => provenatorFetchJson<GhReleaseResponse>(url, { headers }))
+  const json = await withGateway('github', () => voyagerFetchJson<GhReleaseResponse>(url, { headers }))
   return {
     tag: json.tag_name ?? null,
     name: json.name ?? null,

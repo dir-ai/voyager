@@ -21,8 +21,8 @@ jobs:
       - name: Publish to npm (provenance via trusted publishing)
         run: |
           V=$(node -p "require('./package.json').version")
-          if npm view "provenator@$V" version >/dev/null 2>&1; then
-            echo "provenator@$V already on npm — skipping"
+          if npm view "@dir-ai/voyager@$V" version >/dev/null 2>&1; then
+            echo "voyager@$V already on npm — skipping"
           else
             npm publish --provenance --access public
           fi
@@ -55,9 +55,9 @@ jobs:
         with:
           context: .
           load: true
-          tags: provenator:smoke
+          tags: voyager:smoke
       - name: Smoke — help renders inside the image
-        run: docker run --rm provenator:smoke --version
+        run: docker run --rm voyager:smoke --version
       - name: Version from tag
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -68,5 +68,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/dir-ai/provenator:${{ steps.ver.outputs.version }}
-            ghcr.io/dir-ai/provenator:latest
+            ghcr.io/dir-ai/voyager:${{ steps.ver.outputs.version }}
+            ghcr.io/dir-ai/voyager:latest

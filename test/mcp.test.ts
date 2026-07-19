@@ -36,7 +36,7 @@ test('MCP: initialize → list tools → check_package rejects an invalid name (
   const s = mcpSession()
   try {
     const init = await s.request(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } })
-    assert.equal(init.result?.serverInfo?.name, 'provenator')
+    assert.equal(init.result?.serverInfo?.name, 'voyager')
     s.notify('notifications/initialized')
 
     const list = await s.request(2, 'tools/list', {})

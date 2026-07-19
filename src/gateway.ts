@@ -1,5 +1,5 @@
-// Provenator Gateway — the ONE layer every source call passes through. The cascade
-// talks to provenatorRetrieve(); provenatorRetrieve talks to the sources THROUGH the
+// Voyager Gateway — the ONE layer every source call passes through. The cascade
+// talks to voyagerRetrieve(); voyagerRetrieve talks to the sources THROUGH the
 // gateway. This is where per-source policy lives so it's enforced uniformly:
 //   - a single SOURCE REGISTRY (id, tier, host, rate budget)
 //   - per-source RATE LIMITING (min interval between calls — be a good citizen,
@@ -12,11 +12,11 @@
 // sources and inherit the same policy. Server-side only.
 
 import { isEgressAllowed } from './config.js'
-import type { ProvenatorTier } from './types.js'
+import type { VoyagerTier } from './types.js'
 
-export interface ProvenatorSourceSpec {
+export interface VoyagerSourceSpec {
   id: string
-  tier: ProvenatorTier
+  tier: VoyagerTier
   /** The single host this source is allowed to reach (must be on the allowlist). */
   host: string
   /** Minimum ms between two calls to this source (simple rate budget). */
@@ -24,7 +24,7 @@ export interface ProvenatorSourceSpec {
 }
 
 /** The registered sources. Adding a tier = adding a row here. */
-export const PROVENATOR_SOURCES: Record<string, ProvenatorSourceSpec> = {
+export const VOYAGER_SOURCES: Record<string, VoyagerSourceSpec> = {
   github: { id: 'github', tier: 'A', host: 'api.github.com', minIntervalMs: 800 },
   npm: { id: 'npm', tier: 'A', host: 'registry.npmjs.org', minIntervalMs: 150 },
   pypi: { id: 'pypi', tier: 'A', host: 'pypi.org', minIntervalMs: 150 },
@@ -34,7 +34,7 @@ export const PROVENATOR_SOURCES: Record<string, ProvenatorSourceSpec> = {
   apify: { id: 'apify', tier: 'C', host: 'api.apify.com', minIntervalMs: 1500 },
   context7: { id: 'context7', tier: 'B', host: 'context7.com', minIntervalMs: 500 },
   // Tier-B clean-fetch fallback: host VARIES per doc (any host on the curated
-  // PROVENATOR_DOC_ALLOWLIST). Empty host → the per-call egress check in http.ts
+  // VOYAGER_DOC_ALLOWLIST). Empty host → the per-call egress check in http.ts
   // governs which host is allowed; the gateway only applies the rate budget.
   docs: { id: 'docs', tier: 'B', host: '', minIntervalMs: 400 },
 }
@@ -72,13 +72,13 @@ async function acquireSlot(sourceId: string, minIntervalMs: number): Promise<voi
  * pass through ungoverned (so ad-hoc calls still work) but that's discouraged.
  */
 export async function withGateway<T>(sourceId: string, fn: () => Promise<T>): Promise<T> {
-  const spec = PROVENATOR_SOURCES[sourceId]
+  const spec = VOYAGER_SOURCES[sourceId]
   if (spec) {
     // Defense in depth: a registered source with a FIXED host must point at an
     // allowlisted host. A varying-host source (host: '') defers the check to the
     // per-call egress guard in http.ts.
     if (spec.host && !isEgressAllowed(spec.host)) {
-      throw new Error(`provenator gateway: source "${sourceId}" host ${spec.host} not on the allowlist`)
+      throw new Error(`voyager gateway: source "${sourceId}" host ${spec.host} not on the allowlist`)
     }
     await acquireSlot(sourceId, spec.minIntervalMs)
   }

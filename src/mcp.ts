@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /**
- * provenator MCP server (stdio). Gives an agent a verified, cited, OSV-gated,
+ * voyager MCP server (stdio). Gives an agent a verified, cited, OSV-gated,
  * injection-safe brief instead of a raw web response — and a package safety
  * check before it recommends a dependency.
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { provenatorRetrieve } from './index.js'
+import { voyagerRetrieve } from './index.js'
 import { establishPackage } from './establish.js'
 import type { PackageQuery } from './types.js'
 import { VERSION } from './version.js'
 
-const server = new Server({ name: 'provenator', version: VERSION }, { capabilities: { tools: {} } })
+const server = new Server({ name: 'voyager', version: VERSION }, { capabilities: { tools: {} } })
 
 const TOOLS = [
   {
@@ -78,19 +78,19 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (name === 'retrieve') {
       const a = args as { query?: string; packages?: PackageQuery[]; discover?: string; search?: string; docs?: string; docsTopic?: string; proveInTwin?: boolean }
       if (!a.query) return err('query required')
-      return ok(await provenatorRetrieve(a.query, {
+      return ok(await voyagerRetrieve(a.query, {
         packages: a.packages, discover: a.discover, search: a.search, docs: a.docs, docsTopic: a.docsTopic, proveInTwin: a.proveInTwin,
       }))
     }
     if (name === 'discover_repos') {
       const a = args as { intent?: string; limit?: number }
       if (!a.intent) return err('intent required')
-      return ok(await provenatorRetrieve(a.intent, { discover: a.intent, discoverLimit: a.limit }))
+      return ok(await voyagerRetrieve(a.intent, { discover: a.intent, discoverLimit: a.limit }))
     }
     if (name === 'fetch_docs') {
       const a = args as { library?: string; topic?: string }
       if (!a.library) return err('library required')
-      return ok(await provenatorRetrieve(a.library, { docs: a.library, docsTopic: a.topic }))
+      return ok(await voyagerRetrieve(a.library, { docs: a.library, docsTopic: a.topic }))
     }
     return err(`Unknown tool: ${name}`)
   } catch (e) {
@@ -101,7 +101,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 export async function startMcpServer(): Promise<void> {
   const transport = new StdioServerTransport()
   await server.connect(transport)
-  console.error(`provenator MCP server v${VERSION} ready (stdio)`)
+  console.error(`voyager MCP server v${VERSION} ready (stdio)`)
 }
 
 import { fileURLToPath } from 'node:url'

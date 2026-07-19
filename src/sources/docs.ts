@@ -1,19 +1,19 @@
-// Provenator Tier-B source — clean-fetch FALLBACK to Context7. When Context7 has no
+// Voyager Tier-B source — clean-fetch FALLBACK to Context7. When Context7 has no
 // entry, fetch the canonical doc page directly — but ONLY from the curated
-// PROVENATOR_DOC_ALLOWLIST of official documentation hosts (enforced by the egress
+// VOYAGER_DOC_ALLOWLIST of official documentation hosts (enforced by the egress
 // guard in http.ts). Read-only GET, injection-stripped, size-capped. The long
 // tail of blogs is NOT here — that's Tier-C search.
 
-import { provenatorFetchText, stripInjection } from '../http.js'
+import { voyagerFetchText, stripInjection } from '../http.js'
 import { withGateway } from '../gateway.js'
-import { PROVENATOR_DOC_ALLOWLIST } from '../config.js'
-import type { ProvenatorClaim, ProvenatorProvenance } from '../types.js'
+import { VOYAGER_DOC_ALLOWLIST } from '../config.js'
+import type { VoyagerClaim, VoyagerProvenance } from '../types.js'
 
 /** PURE: build a Tier-B claim from a fetched (already injection-stripped) doc. */
-export function mapDocToClaim(url: string, text: string): ProvenatorClaim {
+export function mapDocToClaim(url: string, text: string): VoyagerClaim {
   let host = 'docs'
   try { host = new URL(url).hostname } catch { /* keep default */ }
-  const prov: ProvenatorProvenance = { source: `docs: ${host}`, tier: 'B', url, fetchedAt: new Date().toISOString() }
+  const prov: VoyagerProvenance = { source: `docs: ${host}`, tier: 'B', url, fetchedAt: new Date().toISOString() }
   const excerpt = stripInjection(text).replace(/\s+/g, ' ').trim().slice(0, 600)
   return {
     statement: `${host} (doc ufficiale) — ${excerpt}`,
@@ -25,14 +25,14 @@ export function mapDocToClaim(url: string, text: string): ProvenatorClaim {
 }
 
 export interface DocsOutcome {
-  claims: ProvenatorClaim[]
+  claims: VoyagerClaim[]
   note?: string
 }
 
 /** Is this URL's host on the curated official-docs allowlist? */
 export function isOfficialDocUrl(url: string): boolean {
   try {
-    return PROVENATOR_DOC_ALLOWLIST.has(new URL(url).hostname.toLowerCase())
+    return VOYAGER_DOC_ALLOWLIST.has(new URL(url).hostname.toLowerCase())
   } catch {
     return false
   }
@@ -48,7 +48,7 @@ export async function fetchDocUrl(url: string): Promise<DocsOutcome> {
     return { claims: [], note: `doc URL fuori allowlist ufficiale: ${url.slice(0, 80)}` }
   }
   try {
-    const text = await withGateway('docs', () => provenatorFetchText(url))
+    const text = await withGateway('docs', () => voyagerFetchText(url))
     if (!text.trim()) return { claims: [], note: `doc vuoto: ${url.slice(0, 80)}` }
     return { claims: [mapDocToClaim(url, text)] }
   } catch (e) {

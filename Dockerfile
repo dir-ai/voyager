@@ -1,8 +1,8 @@
-# provenator — containerized CLI + MCP server. Needs network egress to the
+# voyager — containerized CLI + MCP server. Needs network egress to the
 # allowlisted APIs (npm / PyPI / OSV / GitHub / …).
 #
-#   docker run --rm ghcr.io/dir-ai/provenator check express
-#   docker run -i --rm ghcr.io/dir-ai/provenator mcp
+#   docker run --rm ghcr.io/dir-ai/voyager check express
+#   docker run -i --rm ghcr.io/dir-ai/voyager mcp
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./

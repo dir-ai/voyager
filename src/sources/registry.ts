@@ -1,11 +1,11 @@
-// Provenator Tier-A source — package registries (npm + PyPI). Structured facts:
+// Voyager Tier-A source — package registries (npm + PyPI). Structured facts:
 // latest version, license, deprecation, homepage, maintenance signal. No
 // scraping, no key. The "is this a real, maintained package?" ground truth that
 // precedes (and is combined with) the OSV gate and the twin probe.
 
-import { provenatorFetchJson } from '../http.js'
+import { voyagerFetchJson } from '../http.js'
 import { withGateway } from '../gateway.js'
-import type { PackageQuery, ProvenatorProvenance } from '../types.js'
+import type { PackageQuery, VoyagerProvenance } from '../types.js'
 
 export interface PackageFacts {
   name: string
@@ -24,7 +24,7 @@ export interface PackageFacts {
   firstPublished: string | null
   /** Peer deps of the latest version (npm) — input to the compat check. {} for PyPI. */
   peerDependencies: Record<string, string>
-  provenance: ProvenatorProvenance
+  provenance: VoyagerProvenance
 }
 
 // npm/PyPI package name shape — reject anything that could build an odd URL.
@@ -54,7 +54,7 @@ interface PypiResponse {
 async function npmFacts(name: string): Promise<PackageFacts> {
   // Encode a scoped name's slash for the registry path.
   const path = name.startsWith('@') ? name.replace('/', '%2f') : name
-  const json = await withGateway('npm', () => provenatorFetchJson<NpmPackument>(`https://registry.npmjs.org/${path}`, { cacheTtlMs: 600_000, maxBytes: 5_000_000 }))
+  const json = await withGateway('npm', () => voyagerFetchJson<NpmPackument>(`https://registry.npmjs.org/${path}`, { cacheTtlMs: 600_000, maxBytes: 5_000_000 }))
   const latest = json['dist-tags']?.latest ?? null
   const license = typeof json.license === 'string' ? json.license : json.license?.type ?? null
   const deprecated = latest ? json.versions?.[latest]?.deprecated ?? null : null
@@ -81,7 +81,7 @@ async function npmFacts(name: string): Promise<PackageFacts> {
 }
 
 async function pypiFacts(name: string): Promise<PackageFacts> {
-  const json = await withGateway('pypi', () => provenatorFetchJson<PypiResponse>(`https://pypi.org/pypi/${encodeURIComponent(name)}/json`, { cacheTtlMs: 600_000, maxBytes: 5_000_000 }))
+  const json = await withGateway('pypi', () => voyagerFetchJson<PypiResponse>(`https://pypi.org/pypi/${encodeURIComponent(name)}/json`, { cacheTtlMs: 600_000, maxBytes: 5_000_000 }))
   const info = json.info ?? {}
   const version = info.version ?? null
   const lastPublished = version

@@ -1,17 +1,17 @@
-// Provenator Tier-C source — Exa (neural web search). A third open-web provider
+// Voyager Tier-C source — Exa (neural web search). A third open-web provider
 // alongside Tavily (search API) and Apify (scrape actor); fanned out together so
 // coverage degrades gracefully per-key. Same Tier-C posture (retrieval policy
 // §5.3): every result is a LOW-trust BELIEF, capped low, injection-stripped,
 // flagged "unconfirmed", cross-referenced by an A/B source or a twin before it
 // can become a fact.
 //
-// KEY: Vault-first (provider 'exa'), env fallback PROVENATOR_EXA_KEY / EXA_API_KEY.
+// KEY: Vault-first (provider 'exa'), env fallback VOYAGER_EXA_KEY / EXA_API_KEY.
 // No key → the source NO-OPS (returns a note), never blocks.
 
-import { provenatorFetchJson, stripInjection } from '../http.js'
+import { voyagerFetchJson, stripInjection } from '../http.js'
 import { withGateway } from '../gateway.js'
-import { resolveProvenatorKey } from '../keys.js'
-import type { ProvenatorClaim, ProvenatorProvenance } from '../types.js'
+import { resolveVoyagerKey } from '../keys.js'
+import type { VoyagerClaim, VoyagerProvenance } from '../types.js'
 
 const EXA_URL = 'https://api.exa.ai/search'
 
@@ -34,14 +34,14 @@ function safeHost(url: string): string {
 }
 
 /**
- * PURE: map an Exa response into Provenator claims. Tier-C → 'belief', confidence
+ * PURE: map an Exa response into Voyager claims. Tier-C → 'belief', confidence
  * floored low and scaled by Exa's relevance score, content injection-stripped,
  * every claim flagged "unconfirmed". Exported for unit testing without network.
  */
-export function mapExaResults(resp: ExaResponse, fetchedAt: string): ProvenatorClaim[] {
+export function mapExaResults(resp: ExaResponse, fetchedAt: string): VoyagerClaim[] {
   const results = (resp.results ?? []).filter((r) => r.url && r.title)
   return results.map((r) => {
-    const prov: ProvenatorProvenance = { source: `web (exa): ${safeHost(r.url!)}`, tier: 'C', url: r.url, fetchedAt }
+    const prov: VoyagerProvenance = { source: `web (exa): ${safeHost(r.url!)}`, tier: 'C', url: r.url, fetchedAt }
     // Exa score is 0..1 relevance; Tier-C confidence stays in [0.2, 0.45].
     const confidence = Math.max(0.2, Math.min(0.45, 0.2 + (r.score ?? 0.4) * 0.25))
     const snippet = stripInjection(r.text ?? '').slice(0, 280)
@@ -57,19 +57,19 @@ export function mapExaResults(resp: ExaResponse, fetchedAt: string): ProvenatorC
 }
 
 export interface ExaSearchOutcome {
-  claims: ProvenatorClaim[]
+  claims: VoyagerClaim[]
   note?: string
 }
 
 /** Run an Exa neural search. No-ops (with a note) when no key. Never throws. */
 export async function exaSearch(query: string, maxResults = 5): Promise<ExaSearchOutcome> {
-  const key = await resolveProvenatorKey('exa')
+  const key = await resolveVoyagerKey('exa')
   if (!key) {
     return { claims: [], note: 'Exa off — no key configured (provider "exa")' }
   }
   try {
     const resp = await withGateway('exa', () =>
-      provenatorFetchJson<ExaResponse>(EXA_URL, {
+      voyagerFetchJson<ExaResponse>(EXA_URL, {
         method: 'POST',
         headers: { 'x-api-key': key },
         body: {

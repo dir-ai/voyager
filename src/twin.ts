@@ -1,4 +1,4 @@
-// Provenator — minimal proof-in-twin for packages (Pillar 1, F0 slice).
+// Voyager — minimal proof-in-twin for packages (Pillar 1, F0 slice).
 //
 // THE KILLER IDEA, in its smallest honest form: before recommending a package,
 // don't trust the registry — REPRODUCE it. Install the package into a disposable
@@ -6,10 +6,10 @@
 // → it stays a BELIEF (still OSV-gated), never silently promoted.
 //
 // ── Security ─────────────────────────────────────────────────────────────────
-//  1. OPT-IN. Requires PROVENATOR_TWIN=1 — set ONLY on a trusted, single-tenant
+//  1. OPT-IN. Requires VOYAGER_TWIN=1 — set ONLY on a trusted, single-tenant
 //     or local machine (it runs `npm install` of the queried package). Default
 //     OFF → returns 'skipped', so a claim stays an OSV-gated BELIEF.
-//  2. ISOLATED temp dir under os.tmpdir()/.provenator-twin/, installed with
+//  2. ISOLATED temp dir under os.tmpdir()/.voyager-twin/, installed with
 //     --no-save --ignore-scripts (no lifecycle-script RCE), hard timeout,
 //     always cleaned up.
 //  3. SANITIZED env (sandboxEnv): only what npm needs — nothing to exfiltrate.
@@ -23,7 +23,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { provenatorTwinEnabled, PROVENATOR_TWIN_OFF_REASON } from './config.js'
+import { voyagerTwinEnabled, VOYAGER_TWIN_OFF_REASON } from './config.js'
 import type { PackageQuery } from './types.js'
 
 const execFileAsync = promisify(execFile)
@@ -67,8 +67,8 @@ const SAFE_VERSION = /^[a-z0-9][a-z0-9-._+]*$/i
  * caller degrades to a BELIEF cleanly.
  */
 export async function provePackageInTwin(pkg: PackageQuery, opts: { timeoutMs?: number } = {}): Promise<TwinResult> {
-  if (!provenatorTwinEnabled()) {
-    return { status: 'skipped', proved: false, reason: PROVENATOR_TWIN_OFF_REASON }
+  if (!voyagerTwinEnabled()) {
+    return { status: 'skipped', proved: false, reason: VOYAGER_TWIN_OFF_REASON }
   }
   if (pkg.ecosystem !== 'npm') {
     return { status: 'unsupported', proved: false, reason: 'twin probe supports npm only for now (PyPI is roadmap)' }
@@ -79,14 +79,14 @@ export async function provePackageInTwin(pkg: PackageQuery, opts: { timeoutMs?: 
 
   const spec = pkg.version ? `${pkg.name}@${pkg.version}` : pkg.name
   // Under the OS temp dir — NEVER the consumer's cwd (would pollute / get committed).
-  const dir = path.join(os.tmpdir(), '.provenator-twin', `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const dir = path.join(os.tmpdir(), '.voyager-twin', `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   const timeout = Math.min(Math.max(opts.timeoutMs ?? 60_000, 5_000), 180_000)
   const env = sandboxEnv()
 
   try {
     await fs.mkdir(dir, { recursive: true })
     // Minimal package.json so npm installs into THIS dir, not a parent.
-    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'provenator-twin', private: true }), 'utf8')
+    await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'voyager-twin', private: true }), 'utf8')
 
     // 1) Install — no lifecycle scripts (RCE vector), no save, bounded.
     try {
@@ -110,11 +110,11 @@ export async function provePackageInTwin(pkg: PackageQuery, opts: { timeoutMs?: 
       const probe =
         `(async () => { try { require(${name}) } ` +
         `catch (e) { if (e && e.code === 'ERR_REQUIRE_ESM') { await import(${name}) } else throw e } ` +
-        `console.log('PROVENATOR_TWIN_OK') })().catch((e) => { console.error(e && e.message || e); process.exit(1) })`
+        `console.log('VOYAGER_TWIN_OK') })().catch((e) => { console.error(e && e.message || e); process.exit(1) })`
       const { stdout } = await execFileAsync(process.execPath, ['-e', probe], {
         cwd: dir, timeout: 20_000, maxBuffer: 1 * 1024 * 1024, env, shell: false,
       })
-      const proved = /PROVENATOR_TWIN_OK/.test(stdout)
+      const proved = /VOYAGER_TWIN_OK/.test(stdout)
       const installedVersion = await readInstalledVersion(dir, pkg.name)
       return proved
         ? { status: 'proved', proved: true, installedVersion }

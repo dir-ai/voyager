@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * provenator CLI — verify a package or produce a cited, OSV-gated brief.
+ * voyager CLI — verify a package or produce a cited, OSV-gated brief.
  */
-import { provenatorRetrieve } from './index.js'
+import { voyagerRetrieve } from './index.js'
 import { establishPackage } from './establish.js'
-import { resolveProvenatorKey, type KeyProvider } from './keys.js'
+import { resolveVoyagerKey, type KeyProvider } from './keys.js'
 import type { PackageQuery } from './types.js'
 import { VERSION } from './version.js'
 
@@ -24,25 +24,25 @@ function parseArgs(argv: string[]): { flags: Record<string, string | boolean>; p
   return { flags, positionals }
 }
 
-const HELP = `provenator v${VERSION} — the verified-brief organ for coding agents
+const HELP = `voyager v${VERSION} — the verified-brief organ for coding agents
 
 USAGE
-  provenator check <name> [--ecosystem npm|pypi] [--version V] [--twin] [--json]
+  voyager check <name> [--ecosystem npm|pypi] [--version V] [--twin] [--json]
         Verify a package: registry facts + OSV vuln gate (+ optional twin reproduce).
         Exit 1 if NOT recommended — a natural CI gate against unsafe deps.
 
-  provenator brief "<query>" [--package name] [--discover "<intent>"]
+  voyager brief "<query>" [--package name] [--discover "<intent>"]
                              [--search "<web query>"] [--docs <library>] [--twin] [--json]
         Produce a cited, confidence-scored, injection-safe brief.
 
-  provenator discover "<intent>"     GitHub repo discovery (Tier-A).
-  provenator search "<query>"        Open-web search (Tier-C, needs a provider key).
-  provenator docs <library> [--topic <t>]   Canonical docs (Tier-B).
-  provenator doctor                  Which source keys are configured.
-  provenator mcp                     Start the stdio MCP server.
-  provenator help | --version
+  voyager discover "<intent>"     GitHub repo discovery (Tier-A).
+  voyager search "<query>"        Open-web search (Tier-C, needs a provider key).
+  voyager docs <library> [--topic <t>]   Canonical docs (Tier-B).
+  voyager doctor                  Which source keys are configured.
+  voyager mcp                     Start the stdio MCP server.
+  voyager help | --version
 
-The twin (--twin / PROVENATOR_TWIN=1) runs \`npm install\` of the package in a
+The twin (--twin / VOYAGER_TWIN=1) runs \`npm install\` of the package in a
 disposable sandbox to promote a claim from BELIEF to twin-proved FACT. Enable it
 only on a trusted, single-tenant machine.`
 
@@ -55,7 +55,7 @@ async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2)
   const { flags, positionals } = parseArgs(rest)
   const json = flags.json === true
-  const twin = flags.twin === true || process.env.PROVENATOR_TWIN === '1'
+  const twin = flags.twin === true || process.env.VOYAGER_TWIN === '1'
 
   switch (cmd) {
     case undefined:
@@ -94,7 +94,7 @@ async function main(): Promise<number> {
       const packages: PackageQuery[] = typeof flags.package === 'string'
         ? flags.package.split(',').map((n) => ({ name: n.trim(), ecosystem: 'npm' as const }))
         : []
-      const brief = await provenatorRetrieve(query, {
+      const brief = await voyagerRetrieve(query, {
         packages,
         discover: typeof flags.discover === 'string' ? flags.discover : undefined,
         search: typeof flags.search === 'string' ? flags.search : undefined,
@@ -109,7 +109,7 @@ async function main(): Promise<number> {
     case 'discover': {
       const q = positionals[0]
       if (!q) { console.error('discover needs an intent query.'); return 2 }
-      const brief = await provenatorRetrieve(q, { discover: q })
+      const brief = await voyagerRetrieve(q, { discover: q })
       printBrief(brief.rendered, json, brief)
       return brief.ok ? 0 : 1
     }
@@ -117,7 +117,7 @@ async function main(): Promise<number> {
     case 'search': {
       const q = positionals[0]
       if (!q) { console.error('search needs a query.'); return 2 }
-      const brief = await provenatorRetrieve(q, { search: q })
+      const brief = await voyagerRetrieve(q, { search: q })
       printBrief(brief.rendered, json, brief)
       return brief.ok ? 0 : 1
     }
@@ -125,20 +125,20 @@ async function main(): Promise<number> {
     case 'docs': {
       const lib = positionals[0]
       if (!lib) { console.error('docs needs a library name.'); return 2 }
-      const brief = await provenatorRetrieve(lib, { docs: lib, docsTopic: typeof flags.topic === 'string' ? flags.topic : undefined })
+      const brief = await voyagerRetrieve(lib, { docs: lib, docsTopic: typeof flags.topic === 'string' ? flags.topic : undefined })
       printBrief(brief.rendered, json, brief)
       return brief.ok ? 0 : 1
     }
 
     case 'doctor': {
-      console.log('provenator doctor')
+      console.log('voyager doctor')
       console.log('  Tier-A (zero-key): github (unauth, rate-limited), npm, pypi, osv — always available')
       const providers: KeyProvider[] = ['github', 'tavily', 'exa', 'apify', 'context7']
       for (const p of providers) {
-        const k = await resolveProvenatorKey(p)
+        const k = await resolveVoyagerKey(p)
         console.log(`  ${p.padEnd(9)}: ${k ? 'key configured' : 'no key (source no-ops)'}`)
       }
-      console.log(`  twin (npm install probe): ${process.env.PROVENATOR_TWIN === '1' ? 'ENABLED' : 'off (set PROVENATOR_TWIN=1 on a trusted machine)'}`)
+      console.log(`  twin (npm install probe): ${process.env.VOYAGER_TWIN === '1' ? 'ENABLED' : 'off (set VOYAGER_TWIN=1 on a trusted machine)'}`)
       return 0
     }
 

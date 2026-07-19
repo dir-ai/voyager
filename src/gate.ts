@@ -1,4 +1,4 @@
-// Provenator — the Verify Gate. ONE gate, but the trust threshold SCALES WITH TIER
+// Voyager — the Verify Gate. ONE gate, but the trust threshold SCALES WITH TIER
 // (architecture §4): Tier A passes near-direct; Tier C must be cross-confirmed
 // or twin-proved before it enters at full confidence. This module also owns
 // confidence calibration (Pillar 5 — epistemic honesty) and the OSV gate
@@ -7,10 +7,10 @@
 import type { PackageFacts } from './sources/registry.js'
 import type { OsvResult } from './sources/osv.js'
 import type { TwinResult } from './twin.js'
-import type { ProvenatorClaim, ProvenatorProvenance, ProvenatorTier } from './types.js'
+import type { VoyagerClaim, VoyagerProvenance, VoyagerTier } from './types.js'
 
 /** Base confidence a single source of a given tier earns before evidence. */
-const TIER_BASE: Record<ProvenatorTier, number> = {
+const TIER_BASE: Record<VoyagerTier, number> = {
   A: 0.85, // structured API — high, near-direct
   B: 0.8,  // canonical doc — authoritative
   C: 0.4,  // LLM-search — low, must be cross-referenced
@@ -18,7 +18,7 @@ const TIER_BASE: Record<ProvenatorTier, number> = {
 }
 
 /** Floor confidence by the highest-trust tier among a claim's sources. */
-export function calibrateConfidence(provenance: ProvenatorProvenance[]): number {
+export function calibrateConfidence(provenance: VoyagerProvenance[]): number {
   if (provenance.length === 0) return 0.2
   const best = Math.max(...provenance.map((p) => TIER_BASE[p.tier]))
   // Corroboration counts DISTINCT TIERS, not distinct sources: npm + OSV are two
@@ -32,8 +32,8 @@ export function calibrateConfidence(provenance: ProvenatorProvenance[]): number 
 
 export interface PackageVerdict {
   /** The verified claim, ready for the brief. */
-  claim: ProvenatorClaim
-  /** True if Provenator would recommend this package (OSV-clean, not deprecated). */
+  claim: VoyagerClaim
+  /** True if Voyager would recommend this package (OSV-clean, not deprecated). */
   recommended: boolean
 }
 
@@ -50,7 +50,7 @@ export function gatePackage(args: {
   twin: TwinResult | null
 }): PackageVerdict {
   const { facts, osv, osvError, twin } = args
-  const provenance: ProvenatorProvenance[] = [facts.provenance]
+  const provenance: VoyagerProvenance[] = [facts.provenance]
   if (osv) provenance.push(osv.provenance)
 
   const warnings: string[] = []
@@ -89,7 +89,7 @@ export function gatePackage(args: {
   }
 
   // ── Fact vs belief: a twin proof promotes to FACT (ground truth, Tier D) ────
-  let epistemic: ProvenatorClaim['epistemic'] = 'belief'
+  let epistemic: VoyagerClaim['epistemic'] = 'belief'
   if (twin?.proved) {
     epistemic = 'fact'
     provenance.push({

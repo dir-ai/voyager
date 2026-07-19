@@ -1,6 +1,6 @@
 # Security posture
 
-provenator exists to make untrusted internet content safe for a model to reason
+voyager exists to make untrusted internet content safe for a model to reason
 over. Honest threat model.
 
 ## Egress
@@ -33,7 +33,7 @@ Fetched text is DATA, never instruction:
 
 ## The twin (package reproduction)
 
-Opt-in only (`PROVENATOR_TWIN=1`), because it runs `npm install` of the queried
+Opt-in only (`VOYAGER_TWIN=1`), because it runs `npm install` of the queried
 package. When enabled it installs into a disposable dir under the OS temp dir
 (never your project), with `--ignore-scripts` (no lifecycle-script RCE), a
 sanitized env (no secrets to exfiltrate), a hard timeout, and always cleans up.

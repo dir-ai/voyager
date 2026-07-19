@@ -1,17 +1,17 @@
 {
-  "name": "provenator",
+  "name": "@dir-ai/voyager",
   "version": "1.0.0",
-  "description": "The verified-brief organ for coding agents: turns a query into a cited, confidence-scored, OSV-gated, injection-safe brief — never a raw web response. CLI, library, and MCP server.",
+  "description": "Voyager — the verified-brief organ for coding agents: turns a query into a cited, confidence-scored, OSV-gated, injection-safe brief, never a raw web response. CLI, library, and MCP server.",
   "type": "module",
   "license": "MIT",
   "author": "dir-ai",
-  "homepage": "https://github.com/dir-ai/provenator#readme",
+  "homepage": "https://github.com/dir-ai/voyager#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dir-ai/provenator.git"
+    "url": "git+https://github.com/dir-ai/voyager.git"
   },
   "bugs": {
-    "url": "https://github.com/dir-ai/provenator/issues"
+    "url": "https://github.com/dir-ai/voyager/issues"
   },
   "keywords": [
     "ai-agents",
@@ -25,10 +25,10 @@
     "model-context-protocol",
     "package-verification"
   ],
-  "mcpName": "io.github.dir-ai/provenator",
+  "mcpName": "io.github.dir-ai/voyager",
   "bin": {
-    "provenator": "dist/cli.js",
-    "provenator-mcp": "dist/mcp.js"
+    "voyager": "dist/cli.js",
+    "voyager-mcp": "dist/mcp.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -45,6 +45,9 @@
     "SECURITY.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },

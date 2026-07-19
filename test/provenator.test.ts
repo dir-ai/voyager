@@ -5,7 +5,7 @@ import {
   stripInjection,
   asUntrustedEvidence,
   assertEgressAllowed,
-  ProvenatorEgressError,
+  VoyagerEgressError,
   calibrateConfidence,
   gatePackage,
   establishPackage,
@@ -29,11 +29,11 @@ test('assertEgressAllowed: https allowlisted host passes', () => {
   assert.ok(assertEgressAllowed('https://registry.npmjs.org/express'))
 })
 test('assertEgressAllowed: non-https rejected', () => {
-  assert.throws(() => assertEgressAllowed('http://registry.npmjs.org/x'), ProvenatorEgressError)
+  assert.throws(() => assertEgressAllowed('http://registry.npmjs.org/x'), VoyagerEgressError)
 })
 test('assertEgressAllowed: off-allowlist host rejected', () => {
-  assert.throws(() => assertEgressAllowed('https://evil.example.com/x'), ProvenatorEgressError)
-  assert.throws(() => assertEgressAllowed('https://localhost/x'), ProvenatorEgressError)
+  assert.throws(() => assertEgressAllowed('https://evil.example.com/x'), VoyagerEgressError)
+  assert.throws(() => assertEgressAllowed('https://localhost/x'), VoyagerEgressError)
 })
 
 // ── INJECTION STRIP (security core) ────────────────────────────────────────────

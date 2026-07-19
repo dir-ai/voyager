@@ -1,11 +1,11 @@
-// Provenator Tier-A source — OSV.dev vulnerability database.
+// Voyager Tier-A source — OSV.dev vulnerability database.
 // SECURITY-FIRST: this is the gate every package recommendation must pass. OSV
 // is queried BEFORE a package is ever suggested (retrieval policy §5.4). Public
 // API, no key required. https://google.github.io/osv.dev/post-v1-query/
 
-import { provenatorFetchJson } from '../http.js'
+import { voyagerFetchJson } from '../http.js'
 import { withGateway } from '../gateway.js'
-import type { PackageQuery, ProvenatorProvenance } from '../types.js'
+import type { PackageQuery, VoyagerProvenance } from '../types.js'
 
 const OSV_QUERY_URL = 'https://api.osv.dev/v1/query'
 
@@ -27,7 +27,7 @@ export interface OsvResult {
   /** True if OSV returned zero vulns for this package@version. */
   clean: boolean
   vulns: OsvVuln[]
-  provenance: ProvenatorProvenance
+  provenance: VoyagerProvenance
 }
 
 interface OsvApiVuln {
@@ -49,7 +49,7 @@ export async function osvCheck(pkg: PackageQuery): Promise<OsvResult> {
     ...(pkg.version ? { version: pkg.version } : {}),
   }
   const json = await withGateway('osv', () =>
-    provenatorFetchJson<{ vulns?: OsvApiVuln[] }>(OSV_QUERY_URL, { method: 'POST', body, cacheTtlMs: 600_000 }),
+    voyagerFetchJson<{ vulns?: OsvApiVuln[] }>(OSV_QUERY_URL, { method: 'POST', body, cacheTtlMs: 600_000 }),
   )
 
   const vulns: OsvVuln[] = (json.vulns ?? []).map((v) => ({

@@ -1,17 +1,17 @@
-// Provenator Tier-C source — Tavily web search. This is the OPEN-WEB reach: the
+// Voyager Tier-C source — Tavily web search. This is the OPEN-WEB reach: the
 // long tail beyond structured APIs and canonical docs. Tier C is LOW trust by
 // construction (retrieval policy §5.3) — every result is a BELIEF, capped low,
 // injection-stripped, and must be cross-referenced by an A/B source or a twin
-// probe before it can be trusted as a fact. Provenator never lets a raw Tier-C
+// probe before it can be trusted as a fact. Voyager never lets a raw Tier-C
 // snippet reach the coder unframed.
 //
-// KEY: Vault-first (provider 'tavily'), env fallback PROVENATOR_TAVILY_KEY /
+// KEY: Vault-first (provider 'tavily'), env fallback VOYAGER_TAVILY_KEY /
 // TAVILY_API_KEY. No key → the source NO-OPS (returns null), never blocks.
 
-import { provenatorFetchJson, stripInjection } from '../http.js'
+import { voyagerFetchJson, stripInjection } from '../http.js'
 import { withGateway } from '../gateway.js'
-import { resolveProvenatorKey } from '../keys.js'
-import type { ProvenatorClaim, ProvenatorProvenance } from '../types.js'
+import { resolveVoyagerKey } from '../keys.js'
+import type { VoyagerClaim, VoyagerProvenance } from '../types.js'
 
 const TAVILY_URL = 'https://api.tavily.com/search'
 
@@ -27,15 +27,15 @@ interface TavilyResponse {
 }
 
 /**
- * PURE: map a raw Tavily response into Provenator claims. Tier-C → epistemic
+ * PURE: map a raw Tavily response into Voyager claims. Tier-C → epistemic
  * 'belief', confidence floored low and scaled by Tavily's own relevance score,
  * content injection-stripped, every claim flagged "unconfirmed". Exported so the
  * mapping is unit-testable without the network.
  */
-export function mapTavilyResults(resp: TavilyResponse, fetchedAt: string): ProvenatorClaim[] {
+export function mapTavilyResults(resp: TavilyResponse, fetchedAt: string): VoyagerClaim[] {
   const results = (resp.results ?? []).filter((r) => r.url && r.title)
   return results.map((r) => {
-    const prov: ProvenatorProvenance = {
+    const prov: VoyagerProvenance = {
       source: `web: ${safeHost(r.url!)}`,
       tier: 'C',
       url: r.url,
@@ -65,7 +65,7 @@ function safeHost(url: string): string {
 
 export interface TavilySearchOutcome {
   /** Claims (possibly empty). */
-  claims: ProvenatorClaim[]
+  claims: VoyagerClaim[]
   /** Set when the source no-opped or failed — surfaced in the brief notes. */
   note?: string
 }
@@ -75,13 +75,13 @@ export interface TavilySearchOutcome {
  * Never throws — transport failures land in `note`.
  */
 export async function tavilySearch(query: string, maxResults = 5): Promise<TavilySearchOutcome> {
-  const key = await resolveProvenatorKey('tavily')
+  const key = await resolveVoyagerKey('tavily')
   if (!key) {
     return { claims: [], note: 'web search off — no Tavily key configured (provider "tavily")' }
   }
   try {
     const resp = await withGateway('tavily', () =>
-      provenatorFetchJson<TavilyResponse>(TAVILY_URL, {
+      voyagerFetchJson<TavilyResponse>(TAVILY_URL, {
         method: 'POST',
         body: {
           api_key: key,

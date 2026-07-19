@@ -1,27 +1,27 @@
-// Provenator Tier-B source — Context7 (PRIMARY canonical-docs consumer). Context7
+// Voyager Tier-B source — Context7 (PRIMARY canonical-docs consumer). Context7
 // indexes official library docs and serves them as clean text by library id, so
-// Provenator gets authoritative, version-aware docs through ONE allowlisted host
+// Voyager gets authoritative, version-aware docs through ONE allowlisted host
 // (context7.com) instead of scraping N doc sites. Tier-B = authoritative (high
 // trust); still injection-stripped + framed as evidence, never instructions.
 //
 // KEY: Vault-first, FAIL-CLOSED (lead directive: "key dal Vault, zero hardcode,
 // fail-closed se la key manca"). No Context7 key configured (Vault provider
-// 'context7', env PROVENATOR_CONTEXT7_KEY as dev fallback) → Context7 is SKIPPED
+// 'context7', env VOYAGER_CONTEXT7_KEY as dev fallback) → Context7 is SKIPPED
 // with a note, and the caller degrades to the clean-fetch doc fallback. The key
 // is sent only to context7.com, never logged, never on any other path.
 
-import { provenatorFetchJson, provenatorFetchText, stripInjection } from '../http.js'
+import { voyagerFetchJson, voyagerFetchText, stripInjection } from '../http.js'
 import { withGateway } from '../gateway.js'
-import { resolveProvenatorKey } from '../keys.js'
-import type { ProvenatorClaim, ProvenatorProvenance } from '../types.js'
+import { resolveVoyagerKey } from '../keys.js'
+import type { VoyagerClaim, VoyagerProvenance } from '../types.js'
 
 interface C7SearchResult {
   results?: Array<{ id?: string; title?: string; description?: string; totalTokens?: number }>
 }
 
 /** PURE: build a Tier-B claim from a resolved Context7 library + its docs text. */
-export function mapContext7Claim(libraryId: string, title: string, docs: string): ProvenatorClaim {
-  const prov: ProvenatorProvenance = {
+export function mapContext7Claim(libraryId: string, title: string, docs: string): VoyagerClaim {
+  const prov: VoyagerProvenance = {
     source: `Context7: ${title || libraryId}`,
     tier: 'B',
     url: `https://context7.com${libraryId}`,
@@ -40,7 +40,7 @@ export function mapContext7Claim(libraryId: string, title: string, docs: string)
 }
 
 export interface DocsOutcome {
-  claims: ProvenatorClaim[]
+  claims: VoyagerClaim[]
   note?: string
 }
 
@@ -51,7 +51,7 @@ export interface DocsOutcome {
  */
 export async function context7Docs(query: string, topic?: string): Promise<DocsOutcome> {
   // FAIL-CLOSED: no Vault key → don't call Context7 at all (caller falls back).
-  const key = await resolveProvenatorKey('context7')
+  const key = await resolveVoyagerKey('context7')
   if (!key) {
     return { claims: [], note: 'Context7 off — no key configured (provider "context7"); using the clean-fetch fallback' }
   }
@@ -59,7 +59,7 @@ export async function context7Docs(query: string, topic?: string): Promise<DocsO
   try {
     const searchUrl = `https://context7.com/api/v1/search?query=${encodeURIComponent(query.slice(0, 200))}`
     const search = await withGateway('context7', () =>
-      provenatorFetchJson<C7SearchResult>(searchUrl, { headers: authHeaders }),
+      voyagerFetchJson<C7SearchResult>(searchUrl, { headers: authHeaders }),
     )
     const top = (search.results ?? []).find((r) => r.id)
     if (!top?.id) return { claims: [], note: `Context7: nessuna libreria per "${query.slice(0, 60)}"` }
@@ -67,7 +67,7 @@ export async function context7Docs(query: string, topic?: string): Promise<DocsO
     const docsUrl =
       `https://context7.com/api/v1${top.id}?type=txt&tokens=2000` +
       (topic ? `&topic=${encodeURIComponent(topic.slice(0, 80))}` : '')
-    const docs = await withGateway('context7', () => provenatorFetchText(docsUrl, { headers: authHeaders }))
+    const docs = await withGateway('context7', () => voyagerFetchText(docsUrl, { headers: authHeaders }))
     if (!docs.trim()) return { claims: [], note: `Context7: docs vuoti per ${top.id}` }
 
     return { claims: [mapContext7Claim(top.id, top.title ?? top.id, docs)] }

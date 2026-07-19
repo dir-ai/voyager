@@ -1,4 +1,4 @@
-// Provenator — peer-dependency compatibility analysis (F2.2a, the SAFE half of the
+// Voyager — peer-dependency compatibility analysis (F2.2a, the SAFE half of the
 // "does it fit YOUR environment?" twin idea). Given the target package's
 // peerDependencies and the project's declared stack, flag conflicts BEFORE
 // recommending — without installing anything (no tenant-manifest install, no

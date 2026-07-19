@@ -1,11 +1,11 @@
-// provenator — public entrypoint. Turns a query into a verified, cited,
+// voyager — public entrypoint. Turns a query into a verified, cited,
 // confidence-scored BRIEF: the only surface a model should ever see. Never a raw
 // web response. Server-side only.
 //
 // Tiers: A = structured facts (GitHub / npm / PyPI / OSV), B = canonical docs,
 // C = open-web search (cross-referenced before it's trusted), D = a twin proof.
 
-import { provenatorEnabled } from './config.js'
+import { voyagerEnabled } from './config.js'
 import { githubRepoSearch } from './sources/github.js'
 import { tavilySearch } from './sources/tavily.js'
 import { exaSearch } from './sources/exa.js'
@@ -15,14 +15,14 @@ import { fetchDocUrl } from './sources/docs.js'
 import { establishPackage } from './establish.js'
 import { crossReferenceClaims } from './cross-reference.js'
 import { asUntrustedEvidence } from './http.js'
-import type { PackageQuery, ProvenatorBrief, ProvenatorClaim } from './types.js'
+import type { PackageQuery, VoyagerBrief, VoyagerClaim } from './types.js'
 
-export type { ProvenatorBrief, ProvenatorClaim, PackageQuery, ProvenatorTier, ProvenatorEpistemic, ProvenatorProvenance } from './types.js'
+export type { VoyagerBrief, VoyagerClaim, PackageQuery, VoyagerTier, VoyagerEpistemic, VoyagerProvenance } from './types.js'
 export { setKeyResolver, type KeyResolver, type KeyProvider } from './keys.js'
 export { establishPackage, type Establishment } from './establish.js'
 export { gatePackage, calibrateConfidence, type PackageVerdict } from './gate.js'
-export { PROVENATOR_EGRESS_ALLOWLIST, PROVENATOR_DOC_ALLOWLIST, provenatorEnabled } from './config.js'
-export { asUntrustedEvidence, stripInjection, assertEgressAllowed, ProvenatorEgressError } from './http.js'
+export { VOYAGER_EGRESS_ALLOWLIST, VOYAGER_DOC_ALLOWLIST, voyagerEnabled } from './config.js'
+export { asUntrustedEvidence, stripInjection, assertEgressAllowed, VoyagerEgressError } from './http.js'
 export { VERSION } from './version.js'
 
 /** Convenience: verify a single package (OSV gate + registry facts + optional
@@ -35,7 +35,7 @@ export async function checkPackage(
   return establishPackage(pkg, opts)
 }
 
-export interface ProvenatorRetrieveOptions {
+export interface VoyagerRetrieveOptions {
   /** Packages to verify (with OSV gate + optional twin probe). */
   packages?: PackageQuery[]
   /** Free-text intent for a GitHub repo discovery pass. */
@@ -48,7 +48,7 @@ export interface ProvenatorRetrieveOptions {
   docsTopic?: string
   /** Explicit official-doc URL for the clean-fetch fallback (allowlist-gated). */
   docUrl?: string
-  /** Run the digital-twin probe for packages (still gated by PSX_PROVENATOR_TWIN). */
+  /** Run the digital-twin probe for packages (still gated by PSX_VOYAGER_TWIN). */
   proveInTwin?: boolean
   /** Project's declared deps (name → range) → peer-compat check on packages. */
   projectDeps?: Record<string, string>
@@ -58,9 +58,9 @@ export interface ProvenatorRetrieveOptions {
   searchLimit?: number
 }
 
-function renderBrief(query: string, claims: ProvenatorClaim[], notes: string[]): string {
+function renderBrief(query: string, claims: VoyagerClaim[], notes: string[]): string {
   if (!claims.length) {
-    return asUntrustedEvidence('Provenator brief (no claims)', `Query: ${query}\n${notes.join('\n')}`)
+    return asUntrustedEvidence('Voyager brief (no claims)', `Query: ${query}\n${notes.join('\n')}`)
   }
   const lines = claims.map((c) => {
     const pct = Math.round(c.confidence * 100)
@@ -69,11 +69,11 @@ function renderBrief(query: string, claims: ProvenatorClaim[], notes: string[]):
     const warn = c.warning ? `\n    ⚠ ${c.warning}` : ''
     return `- [${tag} · ${pct}%] ${c.statement}\n    src: ${cite}${warn}`
   })
-  // The brief is itself framed as evidence: it is Provenator's vetted output, but
+  // The brief is itself framed as evidence: it is Voyager's vetted output, but
   // the underlying statements still originated outside — the model reasons over
   // them, it does not obey them.
   return asUntrustedEvidence(
-    'Provenator verified brief',
+    'Voyager verified brief',
     `Query: ${query}\n${lines.join('\n')}${notes.length ? `\n\nnotes: ${notes.join('; ')}` : ''}`,
   )
 }
@@ -83,16 +83,16 @@ function renderBrief(query: string, claims: ProvenatorClaim[], notes: string[]):
  * degrade gracefully; transport failures land in `notes`. Returns an empty,
  * not-ok brief immediately when the master flag is off.
  */
-export async function provenatorRetrieve(
+export async function voyagerRetrieve(
   query: string,
-  opts: ProvenatorRetrieveOptions = {},
-): Promise<ProvenatorBrief> {
+  opts: VoyagerRetrieveOptions = {},
+): Promise<VoyagerBrief> {
   const notes: string[] = []
-  if (!provenatorEnabled()) {
-    return { query, claims: [], ok: false, notes: ['provenator disabled (PROVENATOR_OFF=1)'], rendered: '' }
+  if (!voyagerEnabled()) {
+    return { query, claims: [], ok: false, notes: ['voyager disabled (VOYAGER_OFF=1)'], rendered: '' }
   }
 
-  const claims: ProvenatorClaim[] = []
+  const claims: VoyagerClaim[] = []
 
   // ── Package establishment (adversarial: proposer → skeptic → judge) ──────────
   for (const pkg of opts.packages ?? []) {

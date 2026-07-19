@@ -1,9 +1,9 @@
-# provenator
+# voyager
 
 **The verified-brief organ for coding agents.**
 
 An AI coding agent that reaches the open internet gets a raw, unsigned,
-possibly-poisoned blob and feeds it straight into its own prompt. provenator
+possibly-poisoned blob and feeds it straight into its own prompt. voyager
 sits in front of that: it turns a query into a **cited, confidence-scored,
 OSV-gated, injection-safe brief** — the only surface your model ever sees.
 
@@ -25,19 +25,19 @@ CLI, library, and MCP server.
 ## Install
 
 ```bash
-npm i provenator
-npx provenator check express
+npm i @dir-ai/voyager
+npx -y @dir-ai/voyager check express
 ```
 
 ## CLI
 
 ```bash
-provenator check <name> [--ecosystem npm|pypi] [--version V] [--twin]   # exit 1 if unsafe
-provenator brief "<query>" [--package name] [--discover "<intent>"] [--search "<q>"] [--docs <lib>]
-provenator discover "<intent>"     # GitHub repo discovery (Tier-A)
-provenator search "<query>"        # open-web search (Tier-C, needs a key)
-provenator docs <library>          # canonical docs (Tier-B)
-provenator doctor                  # which source keys are configured
+voyager check <name> [--ecosystem npm|pypi] [--version V] [--twin]   # exit 1 if unsafe
+voyager brief "<query>" [--package name] [--discover "<intent>"] [--search "<q>"] [--docs <lib>]
+voyager discover "<intent>"     # GitHub repo discovery (Tier-A)
+voyager search "<query>"        # open-web search (Tier-C, needs a key)
+voyager docs <library>          # canonical docs (Tier-B)
+voyager doctor                  # which source keys are configured
 ```
 
 `check` is a natural CI gate: fail the build if an agent picked a vulnerable,
@@ -46,12 +46,12 @@ deprecated, or non-existent dependency.
 ## Library
 
 ```ts
-import { checkPackage, provenatorRetrieve, setKeyResolver } from 'provenator'
+import { checkPackage, voyagerRetrieve, setKeyResolver } from 'voyager'
 
 const v = await checkPackage({ name: 'express', ecosystem: 'npm' })
 // → { verdict: 'belief' | 'fact' | 'rejected', claim, steps }  (adversarial trace)
 
-const brief = await provenatorRetrieve('a safe date library', {
+const brief = await voyagerRetrieve('a safe date library', {
   packages: [{ name: 'date-fns', ecosystem: 'npm' }],
   discover: 'date library',
 })
@@ -68,7 +68,7 @@ setKeyResolver((provider) => mySecrets.get(provider))
 // .mcp.json
 {
   "mcpServers": {
-    "provenator": { "command": "npx", "args": ["-y", "provenator", "mcp"] }
+    "voyager": { "command": "npx", "args": ["-y", "@dir-ai/voyager", "mcp"] }
   }
 }
 ```
@@ -78,8 +78,8 @@ Tools: `check_package`, `retrieve`, `discover_repos`, `fetch_docs`.
 ## Docker
 
 ```bash
-docker run --rm ghcr.io/dir-ai/provenator check express
-docker run -i --rm ghcr.io/dir-ai/provenator mcp   # stdio MCP
+docker run --rm ghcr.io/dir-ai/voyager check express
+docker run -i --rm ghcr.io/dir-ai/voyager mcp   # stdio MCP
 ```
 
 ## Tiers & trust

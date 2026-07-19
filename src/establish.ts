@@ -1,4 +1,4 @@
-// Provenator — adversarial establishment (Pillar 2). A claim doesn't enter the
+// Voyager — adversarial establishment (Pillar 2). A claim doesn't enter the
 // Genome because one source asserted it. It runs a gauntlet:
 //
 //   PROPOSER  asserts a candidate fact (a source: "react@19 exists, MIT").
@@ -21,7 +21,7 @@ import { osvCheck, type OsvResult } from './sources/osv.js'
 import { provePackageInTwin, type TwinResult } from './twin.js'
 import { gatePackage } from './gate.js'
 import { analyzePeerCompat, hasHardConflict } from './compat.js'
-import type { PackageQuery, ProvenatorClaim } from './types.js'
+import type { PackageQuery, VoyagerClaim } from './types.js'
 
 export type EstablishVerdict = 'fact' | 'belief' | 'rejected'
 export type EstablishRole = 'proposer' | 'skeptic' | 'judge'
@@ -36,7 +36,7 @@ export interface EstablishStep {
 export interface Establishment {
   verdict: EstablishVerdict
   /** The composed claim (null only when the proposer found nothing to assert). */
-  claim: ProvenatorClaim | null
+  claim: VoyagerClaim | null
   steps: EstablishStep[]
 }
 

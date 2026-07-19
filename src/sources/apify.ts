@@ -1,4 +1,4 @@
-// Provenator Tier-C source — Apify (web scraping / automation platform). Where
+// Voyager Tier-C source — Apify (web scraping / automation platform). Where
 // Tavily is a search API, Apify drives ACTORS: here the `apify/rag-web-browser`
 // actor (query → search → scrape → clean markdown) via the run-sync endpoint, so
 // one HTTP call returns results with NO polling. Same epistemic posture as every
@@ -6,17 +6,17 @@
 // is a BELIEF, capped low, injection-stripped, flagged "unconfirmed", and must be
 // cross-referenced by an A/B source or a twin probe before it becomes a fact.
 //
-// KEY: Vault-first (provider 'apify'), env fallback PROVENATOR_APIFY_KEY /
+// KEY: Vault-first (provider 'apify'), env fallback VOYAGER_APIFY_KEY /
 // APIFY_API_TOKEN. No key → the source NO-OPS (returns null), never blocks.
 //
 // NOT yet wired into the live aggregation — this is a ready, tested building
 // block. Wiring it alongside Tavily in the Tier-C reach is a deliberate next step
-// (Provenator owner), so runtime behavior is unchanged until then.
+// (Voyager owner), so runtime behavior is unchanged until then.
 
-import { provenatorFetchJson, stripInjection } from '../http.js'
+import { voyagerFetchJson, stripInjection } from '../http.js'
 import { withGateway } from '../gateway.js'
-import { resolveProvenatorKey } from '../keys.js'
-import type { ProvenatorClaim, ProvenatorProvenance } from '../types.js'
+import { resolveVoyagerKey } from '../keys.js'
+import type { VoyagerClaim, VoyagerProvenance } from '../types.js'
 
 // run-sync-get-dataset-items: run the actor and get its dataset rows in one call.
 const APIFY_ACTOR = 'apify~rag-web-browser'
@@ -50,16 +50,16 @@ function safeHost(url: string): string {
 }
 
 /**
- * PURE: map rag-web-browser dataset items into Provenator claims. Tier-C →
+ * PURE: map rag-web-browser dataset items into Voyager claims. Tier-C →
  * epistemic 'belief', confidence floored low and decayed by rank, content
  * injection-stripped, every claim flagged "unconfirmed". Exported so the mapping
- * is unit-testable without the network (see scripts/provenator-apify-verify.mts).
+ * is unit-testable without the network (see scripts/voyager-apify-verify.mts).
  */
-export function mapApifyResults(items: ApifyRagItem[], fetchedAt: string): ProvenatorClaim[] {
+export function mapApifyResults(items: ApifyRagItem[], fetchedAt: string): VoyagerClaim[] {
   const withUrl = items.filter((it) => pickUrl(it) && (pickTitle(it) || pickContent(it)))
   return withUrl.map((it, idx) => {
     const url = pickUrl(it)!
-    const prov: ProvenatorProvenance = {
+    const prov: VoyagerProvenance = {
       source: `web (apify): ${safeHost(url)}`,
       tier: 'C',
       url,
@@ -81,7 +81,7 @@ export function mapApifyResults(items: ApifyRagItem[], fetchedAt: string): Prove
 }
 
 export interface ApifySearchOutcome {
-  claims: ProvenatorClaim[]
+  claims: VoyagerClaim[]
   /** Set when the source no-opped or failed — surfaced in the brief notes. */
   note?: string
 }
@@ -93,13 +93,13 @@ export interface ApifySearchOutcome {
  * source simply degrades to a note, exactly like every other Tier-C source).
  */
 export async function apifySearch(query: string, maxResults = 3): Promise<ApifySearchOutcome> {
-  const key = await resolveProvenatorKey('apify')
+  const key = await resolveVoyagerKey('apify')
   if (!key) {
     return { claims: [], note: 'Apify off — no key configured (provider "apify")' }
   }
   try {
     const items = await withGateway('apify', () =>
-      provenatorFetchJson<ApifyRagItem[]>(APIFY_URL, {
+      voyagerFetchJson<ApifyRagItem[]>(APIFY_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}` },
         body: {
