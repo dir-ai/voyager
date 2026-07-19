@@ -39,8 +39,25 @@ jobs:
           V=$(node -p "require('./package.json').version")
           if npm view "@dir-ai/voyager@$V" version >/dev/null 2>&1; then
             echo "@dir-ai/voyager@$V already on npm — skipping"
+            exit 0
+          fi
+          # npm sometimes returns a client-side 404/5xx even though the registry
+          # accepted the PUT (a race with the provenance transparency-log write).
+          # On failure, wait and verify whether the version actually landed before
+          # failing the job.
+          if npm publish --provenance --access public; then
+            echo "published @dir-ai/voyager@$V"
           else
-            npm publish --provenance --access public
+            echo "npm publish returned nonzero — verifying whether it landed anyway…"
+            for i in 1 2 3 4 5 6; do
+              sleep 10
+              if npm view "@dir-ai/voyager@$V" version >/dev/null 2>&1; then
+                echo "@dir-ai/voyager@$V is live despite the client error — treating as success"
+                exit 0
+              fi
+            done
+            echo "::error::publish failed and @dir-ai/voyager@$V is not on the registry"
+            exit 1
           fi
       - name: Sync server.json version to the tag
         run: |
