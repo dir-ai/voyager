@@ -382,7 +382,15 @@ export function stripInjection(text: string, depth = 0): string {
   // NFKC folds fullwidth/compatibility homoglyphs onto ASCII so the patterns
   // below see them. (Cross-script homoglyphs remain the framing's job.)
   let out = text.normalize('NFKC')
+  // Fold line endings first: a lone CR (\r) is a fake-turn vector many renderers
+  // treat as a newline, but the `(^|\n)…(system|user):` anchor wouldn't see it.
+  out = out.replace(/\r\n?/g, '\n')
   out = out.replace(ZERO_WIDTH, '').replace(BIDI_CONTROLS, '')
+  // Join tokens split by an intra-word control char or TAB BEFORE the pattern
+  // sweep, so "igno\x01re all previous instructions" / "igno\tre" read as "ignore"
+  // and are actually stripped (previously controls were space-replaced AFTER the
+  // sweep, letting the split payload survive as readable text).
+  out = out.replace(/(?<=\S)[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\t]+(?=\S)/g, '')
   // Structural exfil/obfuscation, handled before the pattern sweep:
   out = out.replace(HTML_COMMENT, ' ')                                   // <!-- system: ignore … -->
   out = out.replace(MD_IMAGE, (_m, alt: string) => `[image: ${alt.slice(0, 40)}]`) // ![x](evil?data) auto-loads

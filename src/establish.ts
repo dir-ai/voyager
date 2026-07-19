@@ -51,6 +51,17 @@ export interface Establishment {
  * PURE decision core: given the gathered evidence, run the adversarial verdict
  * and emit the trace. No I/O — same inputs as gatePackage plus the twin result.
  */
+/** True when a version string is a RANGE/complex spec (not an exact version). An
+ *  exact `1.2.3(-pre)(+build)` is false; `^1`, `~1.2`, `>=1 <2`, `1.x`, `1||2`,
+ *  and whitespace-joined ranges are true. Dist-tags (latest/next/beta) resolve at
+ *  the registry so they never reach this path. */
+function isVersionRange(v: string): boolean {
+  const s = v.trim()
+  if (/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(s)) return false // exact semver
+  if (/[\^~><=*|]|\s|\s-\s/.test(s)) return true
+  return s.split('.').some((p) => p === 'x' || p === 'X' || p === '*')
+}
+
 export function buildEstablishment(args: {
   facts: PackageFacts
   osv: OsvResult | null
@@ -172,6 +183,17 @@ export async function establishPackage(
     // it on the `error` channel so the CLI exits 2, never a false "rejected".
     const notFound = /responded 404\b/.test(msg)
     if (notFound) {
+      // A 404 for a version RANGE isn't "package doesn't exist": npm's per-version
+      // endpoint resolves only exact versions + dist-tags, not ranges. Don't
+      // false-REJECT a real package — surface it on the error channel (exit 2).
+      if (pkg.version && isVersionRange(pkg.version)) {
+        return {
+          verdict: 'rejected',
+          claim: null,
+          error: `"${pkg.name}@${pkg.version}" is a version RANGE, not an exact version — pin an exact version (e.g. resolve it from your lockfile) or omit the version to check latest`,
+          steps: [{ role: 'proposer', finding: `cannot resolve a range spec against the registry's per-version endpoint`, pass: false }],
+        }
+      }
       return {
         verdict: 'rejected',
         claim: null,

@@ -70,7 +70,7 @@ export function gatePackage(args: {
   // ── Registry negative signals ──────────────────────────────────────────────
   if (facts.deprecated) {
     recommended = false
-    warnings.push(`deprecated package: ${facts.deprecated.slice(0, 120)}`)
+    warnings.push(`deprecated package: ${String(facts.deprecated).slice(0, 120)}`)
   }
   if (!facts.latestVersion) {
     recommended = false

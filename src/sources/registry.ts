@@ -63,6 +63,7 @@ interface PypiResponse {
     license?: string
     home_page?: string
     project_urls?: Record<string, string> | null
+    yanked?: boolean
     yanked_reason?: string | null
   }
   releases?: Record<string, Array<{ upload_time_iso_8601?: string; yanked?: boolean }>>
@@ -112,7 +113,9 @@ async function npmFacts(pkg: PackageQuery): Promise<PackageFacts> {
     license,
     description: manifest.description ?? null,
     homepage: manifest.homepage ?? null,
-    deprecated: manifest.deprecated ?? null,
+    // `deprecated` is package-author-controlled and may be a boolean/object, not a
+    // string — coerce so a downstream `.slice()` can never throw (DoS the brief).
+    deprecated: typeof manifest.deprecated === 'string' ? manifest.deprecated : manifest.deprecated ? 'deprecated' : null,
     lastPublished,
     firstPublished,
     peerDependencies: manifest.peerDependencies ?? {},
@@ -155,7 +158,9 @@ async function pypiFacts(pkg: PackageQuery): Promise<PackageFacts> {
     license: info.license ?? null,
     description: info.summary ?? null,
     homepage,
-    deprecated: info.yanked_reason ?? null,
+    // A release can be YANKED with no reason string — read the boolean too, or a
+    // broken/insecure yanked version reads as non-deprecated and gets recommended.
+    deprecated: info.yanked ? (typeof info.yanked_reason === 'string' && info.yanked_reason ? info.yanked_reason : 'yanked release') : null,
     lastPublished,
     firstPublished,
     peerDependencies: {},
