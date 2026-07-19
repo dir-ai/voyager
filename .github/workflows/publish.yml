@@ -29,9 +29,13 @@ jobs:
         run: |
           # Fail loudly if the secret didn't reach the job (empty token).
           if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::NPM_TOKEN secret is empty/not visible to this repo — set it as an org (All repositories) or repo secret."
+            echo "::error::NPM_TOKEN secret is empty/not visible to this repo — set it as a repo secret."
             exit 1
           fi
+          # Strip any stray whitespace/newline from the pasted secret — a trailing
+          # \n makes the Authorization header illegal ("not a legal HTTP header value").
+          NODE_AUTH_TOKEN="$(printf '%s' "$NODE_AUTH_TOKEN" | tr -d '[:space:]')"
+          export NODE_AUTH_TOKEN
           V=$(node -p "require('./package.json').version")
           if npm view "@dir-ai/voyager@$V" version >/dev/null 2>&1; then
             echo "@dir-ai/voyager@$V already on npm — skipping"
