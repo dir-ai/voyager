@@ -89,7 +89,13 @@ export async function voyagerRetrieve(
 ): Promise<VoyagerBrief> {
   const notes: string[] = []
   if (!voyagerEnabled()) {
-    return { query, claims: [], ok: false, notes: ['voyager disabled (VOYAGER_OFF=1)'], rendered: '' }
+    return {
+      query,
+      claims: [],
+      ok: false,
+      notes: ['voyager disabled (VOYAGER_OFF=1)'],
+      rendered: 'voyager disabled (VOYAGER_OFF=1) — no retrieval performed. Unset VOYAGER_OFF to re-enable.',
+    }
   }
 
   const claims: VoyagerClaim[] = []

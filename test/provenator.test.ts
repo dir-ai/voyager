@@ -151,4 +151,7 @@ test('establishPackage rejects an invalid package name without hitting the netwo
   const e = await establishPackage({ name: '../../etc/passwd', ecosystem: 'npm' })
   assert.equal(e.verdict, 'rejected')
   assert.equal(e.claim, null)
+  // A validation/tool failure sets the `error` channel (→ CLI exit 2), so it is
+  // never confused with a genuine "package is unsafe" rejection.
+  assert.ok(e.error, 'invalid name is a tool error, not a package verdict')
 })

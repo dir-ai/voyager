@@ -30,13 +30,20 @@ export interface PackageFacts {
 // npm/PyPI package name shape — reject anything that could build an odd URL.
 const VALID_PACKAGE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i
 
-interface NpmPackument {
-  'dist-tags'?: { latest?: string }
+// Per-VERSION manifest (`/pkg/<version|latest>`) — a few KB even for typescript
+// (whose FULL packument is ~15MB). Carries everything the verdict needs.
+interface NpmManifest {
+  version?: string
   description?: string
   license?: string | { type?: string }
   homepage?: string
+  deprecated?: string
+  peerDependencies?: Record<string, string>
+}
+
+// Full packument — only fetched best-effort for the `time` map (age signals).
+interface NpmPackument {
   time?: Record<string, string>
-  versions?: Record<string, { deprecated?: string; peerDependencies?: Record<string, string> }>
 }
 
 interface PypiResponse {
@@ -51,26 +58,51 @@ interface PypiResponse {
   releases?: Record<string, Array<{ upload_time_iso_8601?: string; yanked?: boolean }>>
 }
 
-async function npmFacts(name: string): Promise<PackageFacts> {
-  // Encode a scoped name's slash for the registry path.
-  const path = name.startsWith('@') ? name.replace('/', '%2f') : name
-  const json = await withGateway('npm', () => voyagerFetchJson<NpmPackument>(`https://registry.npmjs.org/${path}`, { cacheTtlMs: 600_000, maxBytes: 5_000_000 }))
-  const latest = json['dist-tags']?.latest ?? null
-  const license = typeof json.license === 'string' ? json.license : json.license?.type ?? null
-  const deprecated = latest ? json.versions?.[latest]?.deprecated ?? null : null
-  const peerDependencies = (latest ? json.versions?.[latest]?.peerDependencies : null) ?? {}
-  const lastPublished = json.time?.modified ?? (latest ? json.time?.[latest] : null) ?? null
+async function npmFacts(pkg: PackageQuery): Promise<PackageFacts> {
+  const name = pkg.name
+  const ref = pkg.version ?? 'latest'
+  // (1) Per-version manifest — the authoritative core facts. Tiny (KBs), so the
+  //     byte cap never trips it: this is what unblocked `check typescript/react`,
+  //     whose FULL packuments are 15MB/6.8MB and were being REJECTED as "registry
+  //     unreachable". A 404 here means the (version of the) package doesn't exist.
+  const manifest = await withGateway('npm', () =>
+    voyagerFetchJson<NpmManifest>(`https://registry.npmjs.org/${name}/${encodeURIComponent(ref)}`, {
+      cacheTtlMs: 600_000,
+      maxBytes: 3_000_000,
+    }),
+  )
+  const version = manifest.version ?? null
+  const license = typeof manifest.license === 'string' ? manifest.license : manifest.license?.type ?? null
+
+  // (2) Age signals live only in the full packument's `time` map — fetch it
+  //     BEST-EFFORT. A huge packument trips the byte cap; we degrade to null age
+  //     rather than failing the check. That is safe because the age<30d
+  //     supply-chain flag matters for NEW packages, whose packuments are small
+  //     and fetch fine — the giants that overflow are famously old anyway.
+  const enc = name.startsWith('@') ? name.replace('/', '%2f') : name
+  let firstPublished: string | null = null
+  let lastPublished: string | null = null
+  try {
+    const pack = await withGateway('npm', () =>
+      voyagerFetchJson<NpmPackument>(`https://registry.npmjs.org/${enc}`, { cacheTtlMs: 600_000, maxBytes: 6_000_000 }),
+    )
+    firstPublished = pack.time?.created ?? null
+    lastPublished = pack.time?.modified ?? (version ? pack.time?.[version] ?? null : null) ?? null
+  } catch {
+    /* packument too large / transient — age signals unavailable, not a failure */
+  }
+
   return {
     name,
     ecosystem: 'npm',
-    latestVersion: latest,
+    latestVersion: version,
     license,
-    description: json.description ?? null,
-    homepage: json.homepage ?? null,
-    deprecated: deprecated ?? null,
+    description: manifest.description ?? null,
+    homepage: manifest.homepage ?? null,
+    deprecated: manifest.deprecated ?? null,
     lastPublished,
-    firstPublished: json.time?.created ?? null,
-    peerDependencies,
+    firstPublished,
+    peerDependencies: manifest.peerDependencies ?? {},
     provenance: {
       source: 'npm registry',
       tier: 'A',
@@ -116,5 +148,5 @@ export async function packageFacts(pkg: PackageQuery): Promise<PackageFacts> {
   if (!VALID_PACKAGE_NAME.test(pkg.name)) {
     throw new Error(`invalid package name: ${pkg.name}`)
   }
-  return pkg.ecosystem === 'pypi' ? pypiFacts(pkg.name) : npmFacts(pkg.name)
+  return pkg.ecosystem === 'pypi' ? pypiFacts(pkg.name) : npmFacts(pkg)
 }

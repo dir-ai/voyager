@@ -38,6 +38,13 @@ export interface Establishment {
   /** The composed claim (null only when the proposer found nothing to assert). */
   claim: VoyagerClaim | null
   steps: EstablishStep[]
+  /**
+   * Set ONLY when the verdict could not be computed because of a tool/registry
+   * FAILURE (network, timeout, oversized response) — NOT because the package is
+   * bad. Callers map this to a distinct exit code (2) so CI can tell "voyager is
+   * broken" apart from "this package is unsafe" (rejected → 1).
+   */
+  error?: string
 }
 
 /**
@@ -136,10 +143,24 @@ export async function establishPackage(
   try {
     facts = await packageFacts(pkg)
   } catch (e) {
+    const msg = (e as Error)?.message ?? 'error'
+    // A 404 is a real statement about the package: it does not exist → a genuine
+    // rejection (exit 1). Anything else (oversized response, timeout, 5xx, DNS,
+    // an invalid-name guard) is a TOOL failure, not a package verdict → surface
+    // it on the `error` channel so the CLI exits 2, never a false "rejected".
+    const notFound = /responded 404\b/.test(msg)
+    if (notFound) {
+      return {
+        verdict: 'rejected',
+        claim: null,
+        steps: [{ role: 'proposer', finding: `${pkg.name} not found in the ${pkg.ecosystem} registry`, pass: false }],
+      }
+    }
     return {
       verdict: 'rejected',
       claim: null,
-      steps: [{ role: 'proposer', finding: `registry unreachable: ${(e as Error)?.message ?? 'error'}`, pass: false }],
+      error: `registry error: ${msg}`,
+      steps: [{ role: 'proposer', finding: `registry error (not a verdict on the package): ${msg}`, pass: false }],
     }
   }
 

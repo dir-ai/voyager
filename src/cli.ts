@@ -27,9 +27,10 @@ function parseArgs(argv: string[]): { flags: Record<string, string | boolean>; p
 const HELP = `voyager v${VERSION} — the verified-brief organ for coding agents
 
 USAGE
-  voyager check <name> [--ecosystem npm|pypi] [--version V] [--twin] [--json]
+  voyager check <name[@version]> [--ecosystem npm|pypi] [--version V] [--twin] [--json]
         Verify a package: registry facts + OSV vuln gate (+ optional twin reproduce).
-        Exit 1 if NOT recommended — a natural CI gate against unsafe deps.
+        Accepts the name@version shorthand (e.g. lodash@4.17.20).
+        Exit codes: 0 ok · 1 REJECTED (unsafe) · 2 tool/usage error (no verdict).
 
   voyager brief "<query>" [--package name] [--discover "<intent>"]
                              [--search "<web query>"] [--docs <library>] [--twin] [--json]
@@ -51,6 +52,13 @@ function printBrief(rendered: string, json: boolean, brief: unknown): void {
   else console.log(rendered)
 }
 
+// Retrieval exit code: an intentional VOYAGER_OFF disable is NOT a failure
+// (exit 0 with a printed notice), otherwise 0 on a usable brief, 1 on none.
+function briefExit(brief: { ok: boolean; notes?: string[] }): number {
+  if (brief.notes?.some((n) => /voyager disabled/i.test(n))) return 0
+  return brief.ok ? 0 : 1
+}
+
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2)
   const { flags, positionals } = parseArgs(rest)
@@ -70,12 +78,25 @@ async function main(): Promise<number> {
       return 0
 
     case 'check': {
-      const name = positionals[0]
-      if (!name) { console.error('check needs a package name.'); return 2 }
+      const raw = positionals[0]
+      if (!raw) { console.error('check needs a package name.'); return 2 }
+      // Support the `name@version` shorthand (and scoped `@scope/name@version`):
+      // a version `@` is only meaningful when it is NOT the leading scope `@`.
+      const at = raw.lastIndexOf('@')
+      const name = at > 0 ? raw.slice(0, at) : raw
+      const inlineVersion = at > 0 ? raw.slice(at + 1) : undefined
       const ecosystem = (flags.ecosystem === 'pypi' ? 'pypi' : 'npm') as PackageQuery['ecosystem']
-      const pkg: PackageQuery = { name, ecosystem, version: typeof flags.version === 'string' ? flags.version : undefined }
+      const pkg: PackageQuery = { name, ecosystem, version: typeof flags.version === 'string' ? flags.version : inlineVersion }
       const est = await establishPackage(pkg, { proveInTwin: twin })
-      if (json) { console.log(JSON.stringify(est, null, 2)); return est.verdict === 'rejected' ? 1 : 0 }
+      // Exit codes: 0 = ok (fact/belief), 1 = REJECTED (package is unsafe), 2 =
+      // TOOL error (registry/network failure — no verdict). CI can then tell an
+      // unsafe dependency apart from a broken voyager.
+      const exitFor = (e: typeof est): number => (e.error ? 2 : e.verdict === 'rejected' ? 1 : 0)
+      if (json) { console.log(JSON.stringify(est, null, 2)); return exitFor(est) }
+      if (est.error) {
+        console.error(`${name} (${ecosystem}) — could not verify: ${est.error}`)
+        return 2
+      }
       const c = est.claim
       console.log(`${name} (${ecosystem}) — verdict: ${est.verdict.toUpperCase()}`)
       if (c) {
@@ -84,8 +105,7 @@ async function main(): Promise<number> {
         if (c.warning) console.log(`  ⚠ ${c.warning}`)
       }
       for (const s of est.steps) console.log(`  ${s.pass ? '✓' : '✗'} ${s.role}: ${s.finding}`)
-      // Exit 1 when the package is not safe to recommend.
-      return est.verdict === 'rejected' ? 1 : 0
+      return exitFor(est)
     }
 
     case 'brief': {
@@ -103,7 +123,7 @@ async function main(): Promise<number> {
         proveInTwin: twin,
       })
       printBrief(brief.rendered, json, brief)
-      return brief.ok ? 0 : 1
+      return briefExit(brief)
     }
 
     case 'discover': {
@@ -111,7 +131,7 @@ async function main(): Promise<number> {
       if (!q) { console.error('discover needs an intent query.'); return 2 }
       const brief = await voyagerRetrieve(q, { discover: q })
       printBrief(brief.rendered, json, brief)
-      return brief.ok ? 0 : 1
+      return briefExit(brief)
     }
 
     case 'search': {
@@ -119,7 +139,7 @@ async function main(): Promise<number> {
       if (!q) { console.error('search needs a query.'); return 2 }
       const brief = await voyagerRetrieve(q, { search: q })
       printBrief(brief.rendered, json, brief)
-      return brief.ok ? 0 : 1
+      return briefExit(brief)
     }
 
     case 'docs': {
@@ -127,7 +147,7 @@ async function main(): Promise<number> {
       if (!lib) { console.error('docs needs a library name.'); return 2 }
       const brief = await voyagerRetrieve(lib, { docs: lib, docsTopic: typeof flags.topic === 'string' ? flags.topic : undefined })
       printBrief(brief.rendered, json, brief)
-      return brief.ok ? 0 : 1
+      return briefExit(brief)
     }
 
     case 'doctor': {
@@ -157,5 +177,6 @@ async function main(): Promise<number> {
 
 main().then((code) => process.exit(code)).catch((err) => {
   console.error(err instanceof Error ? err.stack ?? err.message : String(err))
-  process.exit(1)
+  // An unexpected throw is a TOOL failure, not a package rejection → exit 2.
+  process.exit(2)
 })
