@@ -11,6 +11,7 @@ import {
   establishPackage,
 } from '../dist/index.js'
 import { buildEstablishment } from '../dist/establish.js'
+import { provePackageInTwin } from '../dist/twin.js'
 import { crossReferenceClaims } from '../dist/cross-reference.js'
 import { analyzePeerCompat } from '../dist/compat.js'
 import { withGateway, __resetGatewayClock } from '../dist/gateway.js'
@@ -20,6 +21,7 @@ const facts = (over: Partial<PackageFacts> = {}): PackageFacts => ({
   name: 'demo', ecosystem: 'npm', latestVersion: '1.2.3', license: 'MIT',
   description: null, homepage: null, deprecated: null, lastPublished: '2024-01-01T00:00:00Z',
   firstPublished: '2020-01-01T00:00:00Z', peerDependencies: {},
+  hasProvenance: false, integrity: null,
   provenance: { source: 'npm registry', tier: 'A', fetchedAt: '2024-01-01T00:00:00Z' },
   ...over,
 })
@@ -120,6 +122,31 @@ test('buildEstablishment: clean OSV → belief; twin-proved → fact; twin-faile
   assert.equal(buildEstablishment({ facts: facts(), osv: clean, twin: { status: 'proved', proved: true, installedVersion: '1.2.3' } }).verdict, 'fact')
   const failed = buildEstablishment({ facts: facts(), osv: clean, twin: { status: 'failed', proved: false, reason: 'ERR_REQUIRE_ESM' } })
   assert.equal(failed.verdict, 'belief', 'a twin that did not reproduce must not mark an OSV-clean package unsafe')
+})
+
+// ── TWIN ISOLATION (deterministic: these paths return before any runtime/install) ──
+test('twin: disabled by default → skipped, never runs package code', async () => {
+  delete process.env.VOYAGER_TWIN
+  const r = await provePackageInTwin({ name: 'left-pad', ecosystem: 'npm' })
+  assert.equal(r.status, 'skipped')
+})
+test('twin: pypi → unsupported (npm only) before any execution', async () => {
+  process.env.VOYAGER_TWIN = '1'
+  try {
+    const r = await provePackageInTwin({ name: 'requests', ecosystem: 'pypi' })
+    assert.equal(r.status, 'unsupported')
+  } finally {
+    delete process.env.VOYAGER_TWIN
+  }
+})
+test('twin: invalid name → error before runtime detection / install', async () => {
+  process.env.VOYAGER_TWIN = '1'
+  try {
+    const r = await provePackageInTwin({ name: '../../etc/passwd', ecosystem: 'npm' })
+    assert.equal(r.status, 'error')
+  } finally {
+    delete process.env.VOYAGER_TWIN
+  }
 })
 
 // ── CROSS-REFERENCE ─────────────────────────────────────────────────────────────

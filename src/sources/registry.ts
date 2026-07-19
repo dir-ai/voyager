@@ -24,6 +24,11 @@ export interface PackageFacts {
   firstPublished: string | null
   /** Peer deps of the latest version (npm) — input to the compat check. {} for PyPI. */
   peerDependencies: Record<string, string>
+  /** True when the registry publishes a build-provenance attestation for this
+   *  version (npm SLSA provenance) — a strong, verifiable supply-chain signal. */
+  hasProvenance: boolean
+  /** Subresource integrity of the tarball that WOULD be installed (dist.integrity). */
+  integrity: string | null
   provenance: VoyagerProvenance
 }
 
@@ -39,6 +44,11 @@ interface NpmManifest {
   homepage?: string
   deprecated?: string
   peerDependencies?: Record<string, string>
+  dist?: {
+    integrity?: string
+    // Present when the publisher attached a build-provenance attestation.
+    attestations?: { url?: string; provenance?: { predicateType?: string } }
+  }
 }
 
 // Full packument — only fetched best-effort for the `time` map (age signals).
@@ -106,6 +116,8 @@ async function npmFacts(pkg: PackageQuery): Promise<PackageFacts> {
     lastPublished,
     firstPublished,
     peerDependencies: manifest.peerDependencies ?? {},
+    hasProvenance: Boolean(manifest.dist?.attestations?.provenance),
+    integrity: manifest.dist?.integrity ?? null,
     provenance: {
       source: 'npm registry',
       tier: 'A',
@@ -147,6 +159,9 @@ async function pypiFacts(pkg: PackageQuery): Promise<PackageFacts> {
     lastPublished,
     firstPublished,
     peerDependencies: {},
+    // PyPI attestations (PEP 740) are not read yet — treated as unsigned for now.
+    hasProvenance: false,
+    integrity: null,
     provenance: {
       source: 'PyPI',
       tier: 'A',

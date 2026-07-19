@@ -91,6 +91,12 @@ export function buildEstablishment(args: {
   if (facts.deprecated) {
     steps.push({ role: 'skeptic', finding: `deprecated package: ${facts.deprecated.slice(0, 80)}`, pass: false })
   }
+  // Supply-chain provenance: a build attestation (npm SLSA) is a strong,
+  // verifiable origin signal. Its ABSENCE is not a block (most packages lack it),
+  // but its PRESENCE is a real positive — surfaced so the agent can prefer it.
+  if (facts.hasProvenance) {
+    steps.push({ role: 'skeptic', finding: 'build provenance attestation present (SLSA) — verifiable origin', pass: true })
+  }
   // Peer-dependency compatibility against the project's declared stack (the safe
   // "does it fit YOUR environment?" check — no install).
   const conflicts = projectDeps ? analyzePeerCompat(projectDeps, facts.peerDependencies) : []
@@ -149,6 +155,11 @@ export async function establishPackage(
   pkg: PackageQuery,
   opts: { proveInTwin?: boolean; projectDeps?: Record<string, string> } = {},
 ): Promise<Establishment> {
+  // An empty version string (`express@` → version: '') is malformed input, not a
+  // real pin — normalize to "unspecified" so facts + OSV resolve latest instead
+  // of building a bogus /pkg/ URL that 404s and looks like "does not exist".
+  if (pkg.version === '') pkg = { ...pkg, version: undefined }
+
   let facts: PackageFacts
   try {
     facts = await packageFacts(pkg)

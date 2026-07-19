@@ -8,6 +8,11 @@
 //                           cannot OOM us by buffering before the timeout fires)
 //   5. injection-strip    — fetched content is DATA, never instruction
 
+import { readFileSync, writeFile, mkdirSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+
 import { isEgressAllowed, VOYAGER_FETCH_TIMEOUT_MS, VOYAGER_MAX_RESPONSE_BYTES } from './config.js'
 
 export class VoyagerEgressError extends Error {
@@ -33,14 +38,65 @@ export interface VoyagerFetchInit {
   maxBytes?: number
 }
 
-// Tiny TTL cache for idempotent Tier-A JSON. Bounded; oldest entries evicted.
+// Two-tier TTL cache for idempotent Tier-A JSON (registry/OSV facts ONLY — never
+// intent-specific search). Tier 1: in-process Map. Tier 2: content-addressed
+// files under ~/.voyager/cache, so the CLI reuses facts ACROSS runs (less
+// latency, fewer rate-limits, degraded-network resilience). Only responses that
+// already opt into cacheTtlMs land here; auth headers are never part of the key
+// or the value, so NO secret is ever written to disk. Disable with
+// VOYAGER_NO_CACHE=1; relocate with VOYAGER_CACHE_DIR.
 const CACHE = new Map<string, { at: number; value: unknown }>()
 const CACHE_MAX = 500
+
+const DISK_CACHE_OFF = process.env.VOYAGER_NO_CACHE === '1'
+const DISK_DIR = process.env.VOYAGER_CACHE_DIR || join(homedir() || tmpdir(), '.voyager', 'cache')
+let diskReady: boolean | null = null
+
+function diskEnabled(): boolean {
+  if (DISK_CACHE_OFF) return false
+  if (diskReady === null) {
+    try {
+      mkdirSync(DISK_DIR, { recursive: true })
+      diskReady = true
+    } catch {
+      diskReady = false // read-only FS / no home — silently fall back to memory-only
+    }
+  }
+  return diskReady
+}
+
+function diskPath(key: string): string {
+  return join(DISK_DIR, createHash('sha256').update(key).digest('hex') + '.json')
+}
+
+function diskGet(key: string, ttl: number): unknown | undefined {
+  if (!diskEnabled()) return undefined
+  const p = diskPath(key)
+  try {
+    const { at, value } = JSON.parse(readFileSync(p, 'utf8')) as { at: number; value: unknown }
+    if (Date.now() - at < ttl) return value
+    rmSync(p, { force: true }) // expired — evict
+  } catch {
+    /* miss / unreadable */
+  }
+  return undefined
+}
+
+function diskSet(key: string, value: unknown): void {
+  if (!diskEnabled()) return
+  // Fire-and-forget: a cache write must never block or throw into the request path.
+  writeFile(diskPath(key), JSON.stringify({ at: Date.now(), value }), () => {})
+}
 
 function cacheGet(key: string, ttl: number): unknown | undefined {
   const hit = CACHE.get(key)
   if (hit && Date.now() - hit.at < ttl) return hit.value
   if (hit) CACHE.delete(key)
+  const onDisk = diskGet(key, ttl)
+  if (onDisk !== undefined) {
+    CACHE.set(key, { at: Date.now(), value: onDisk }) // promote to the fast tier
+    return onDisk
+  }
   return undefined
 }
 
@@ -50,6 +106,7 @@ function cacheSet(key: string, value: unknown): void {
     if (oldest !== undefined) CACHE.delete(oldest)
   }
   CACHE.set(key, { at: Date.now(), value })
+  diskSet(key, value)
 }
 
 /** Test helper — clear the response cache. */

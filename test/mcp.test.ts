@@ -48,6 +48,10 @@ test('MCP: initialize → list tools → check_package rejects an invalid name (
     const res = await s.request(3, 'tools/call', { name: 'check_package', arguments: { name: '../../etc/passwd', ecosystem: 'npm' } })
     const payload = JSON.parse(res.result.content[0].text)
     assert.equal(payload.verdict, 'rejected')
+    // A tool/registry failure (here: invalid-name guard) must set isError so the
+    // client can tell "could not verify" apart from "package is unsafe".
+    assert.equal(res.result.isError, true)
+    assert.ok(payload.error, 'the error channel must be populated on a tool failure')
   } finally {
     s.child.kill()
     await once(s.child, 'exit').catch(() => {})

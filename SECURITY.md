@@ -33,10 +33,24 @@ Fetched text is DATA, never instruction:
 
 ## The twin (package reproduction)
 
-Opt-in only (`VOYAGER_TWIN=1`), because it runs `npm install` of the queried
-package. When enabled it installs into a disposable dir under the OS temp dir
-(never your project), with `--ignore-scripts` (no lifecycle-script RCE), a
-sanitized env (no secrets to exfiltrate), a hard timeout, and always cleans up.
+Opt-in only (`VOYAGER_TWIN=1`). The install runs `npm install --ignore-scripts`
+(no lifecycle-script RCE) into a disposable dir under the OS temp dir (never your
+project) — download + unpack, no package code executed. The **smoke import**, the
+only step that runs the package's own code, executes inside a **hardened rootless
+container**: `--network none` (no exfiltration), `--read-only` + tmpfs (no host
+writes), `node_modules` mounted read-only (no host home/credentials),
+`--user 65534` (non-root), `--cap-drop ALL`, `--security-opt no-new-privileges`,
+and pid/memory/cpu limits. Hard timeout, always cleaned up.
+
+If no container runtime (podman/docker) is present, the twin **refuses to run**
+(returns `unsupported`) rather than execute package code on the host. The
+pre-container host-execution path exists only behind an explicit, documented
+`VOYAGER_TWIN_HOST=1` — which is **dangerous** (the import then runs with your
+privileges and can read files, open sockets, spawn processes) and should be used
+only on a throwaway, single-tenant machine.
+
+A PASS proves the package installs and its entrypoint loads — it is **not** a
+proof that the package is safe.
 
 ## Supply-chain gate
 

@@ -86,6 +86,12 @@ async function main(): Promise<number> {
       const at = raw.lastIndexOf('@')
       const name = at > 0 ? raw.slice(0, at) : raw
       const inlineVersion = at > 0 ? raw.slice(at + 1) : undefined
+      // `express@` (trailing @, empty version) is a malformed request, not a
+      // non-existent package — a usage error (exit 2), never a false rejection.
+      if (inlineVersion === '') {
+        console.error(`empty version in "${raw}" — write "${name}" or "${name}@<version>".`)
+        return 2
+      }
       const ecosystem = (flags.ecosystem === 'pypi' ? 'pypi' : 'npm') as PackageQuery['ecosystem']
       const pkg: PackageQuery = { name, ecosystem, version: typeof flags.version === 'string' ? flags.version : inlineVersion }
       const est = await establishPackage(pkg, { proveInTwin: twin })
