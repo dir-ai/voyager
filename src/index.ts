@@ -65,7 +65,10 @@ function renderBrief(query: string, claims: VoyagerClaim[], notes: string[]): st
   const lines = claims.map((c) => {
     const pct = Math.round(c.confidence * 100)
     const tag = c.epistemic === 'fact' ? 'FACT' : 'belief'
-    const cite = c.provenance.map((p) => `${p.source}[${p.tier}]`).join(', ')
+    // Include the canonical URL in the RENDERED text (not just the JSON) — the
+    // rendered brief is the surface handed to the model, so a "cited" claim must
+    // carry a verifiable citation there.
+    const cite = c.provenance.map((p) => `${p.source}[${p.tier}]${p.url ? ` <${p.url}>` : ''}`).join(', ')
     const warn = c.warning ? `\n    ⚠ ${c.warning}` : ''
     return `- [${tag} · ${pct}%] ${c.statement}\n    src: ${cite}${warn}`
   })

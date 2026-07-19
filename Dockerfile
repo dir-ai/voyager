@@ -17,5 +17,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server.json LICENSE SECURITY.md README.md ./
+# Drop root: the image runs read-only retrieval, it never needs privilege.
+USER node
 ENTRYPOINT ["node", "/app/dist/cli.js"]
 CMD ["help"]

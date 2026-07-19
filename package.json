@@ -1,6 +1,6 @@
 {
   "name": "@dir-ai/voyager",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Voyager — the verified-brief organ for coding agents: turns a query into a cited, confidence-scored, OSV-gated, injection-hardened brief, never a raw web response. CLI, library, and MCP server.",
   "type": "module",
   "license": "MIT",
@@ -57,10 +57,12 @@
     "test": "npm run build && tsc -p tsconfig.test.json && node --test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "semver": "^7.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "@types/semver": "^7.5.0"
   }
 }

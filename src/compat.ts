@@ -4,14 +4,14 @@
 // recommending — without installing anything (no tenant-manifest install, no
 // download, no new dependency).
 //
-// Deliberately dependency-FREE: no `semver` import (it's only a transitive dep
-// here — importing it directly would make the deploy gate fragile). Instead a
-// conservative MAJOR-version check, honest by construction:
-//   - 'conflict' ONLY when the project's major is provably outside EVERY major
-//     the peer range allows (e.g. needs react@^18, project has react@19).
-//   - 'verify' when either side is unparseable / a complex range → we never emit
-//     a false "incompatible"; we surface uncertainty (epistemic honesty).
-//   - compatible majors → no finding.
+// Uses the real `semver` library (`intersects`) so caret/tilde/ranges/prerelease
+// are correct — a hand-rolled major-only check wrongly called `~1.2.3` and `1.9.0`
+// compatible (they are not). Honest by construction:
+//   - 'conflict' when the two ranges provably CANNOT be satisfied together.
+//   - 'verify' when either side isn't a parseable range (workspace:, git urls,
+//     `latest`, `*`) → we never emit a FALSE "incompatible"; we surface uncertainty.
+
+import semver from 'semver'
 
 export interface PeerConflict {
   /** The peer dependency name. */
@@ -24,24 +24,13 @@ export interface PeerConflict {
   note: string
 }
 
-/**
- * A caret-compatibility key for a simple version/range, or null when it is NOT a
- * simple single form. We treat ONLY exact / caret / tilde single versions
- * (`1.2.3`, `^1.2.3`, `~1.2.3`) as certain. Anything with a range operator
- * (`>=`, `<`, `-`, `||`, `*`, `x`, `latest`, `workspace:`) → null → we say
- * "verify" rather than risk a FALSE conflict. Honest by construction.
- *
- * The key follows semver's "compatible-with" axis: for major >= 1 it's the major
- * (`^1.2` ~ `^1.9`); for major 0 the BREAKING axis is the minor, so `^0.1` and
- * `^0.2` are NOT compatible and get distinct keys (`0.1` vs `0.2`).
- */
-function compatKey(range: string): string | null {
-  const m = range.trim().match(/^[\^~]?(\d+)(?:\.(\d+))?(?:\.\d+)?$/)
-  if (!m) return null
-  const major = Number(m[1])
-  if (major > 0) return String(major)
-  const minor = m[2] !== undefined ? m[2] : '0'
-  return `0.${minor}`
+/** A normalized, semver-parseable range, or null if it's a form semver can't
+ *  reason about (workspace:/file:/git/`latest`/tag) → caller says "verify". */
+function normalizeRange(input: string): string | null {
+  const r = (input ?? '').trim()
+  if (!r) return null
+  if (/^(workspace:|file:|link:|git|https?:|github:|npm:|\*$|latest$|next$)/i.test(r)) return null
+  return semver.validRange(r, { loose: true }) ?? null
 }
 
 /**
@@ -57,19 +46,26 @@ export function analyzePeerCompat(
   for (const [pkg, required] of Object.entries(peerDeps ?? {})) {
     const projectHas = projectDeps?.[pkg]
     if (!projectHas) continue // project doesn't use this peer → nothing to clash
-    const reqKey = compatKey(required)
-    const haveKey = compatKey(projectHas)
-    if (reqKey === null || haveKey === null) {
-      out.push({ pkg, required, projectHas, severity: 'verify', note: 'range not determinable — verify manually' })
+    const reqRange = normalizeRange(required)
+    const haveRange = normalizeRange(projectHas)
+    if (reqRange === null || haveRange === null) {
+      out.push({ pkg, required, projectHas, severity: 'verify', note: 'range not determinable (complex/non-semver spec) — verify manually' })
       continue
     }
-    if (reqKey !== haveKey) {
+    let intersects: boolean
+    try {
+      intersects = semver.intersects(reqRange, haveRange, { loose: true })
+    } catch {
+      out.push({ pkg, required, projectHas, severity: 'verify', note: 'ranges could not be compared — verify manually' })
+      continue
+    }
+    if (!intersects) {
       out.push({
         pkg,
         required,
         projectHas,
         severity: 'conflict',
-        note: `requires ${pkg}@${required} but the project has ${projectHas} (incompatible)`,
+        note: `requires ${pkg}@${required} but the project has ${projectHas} — no overlapping version satisfies both`,
       })
     }
   }

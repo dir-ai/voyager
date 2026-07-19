@@ -88,6 +88,7 @@ const TOOLS = [
       properties: {
         library: { type: 'string', minLength: 1, maxLength: 214 },
         topic: { type: 'string', maxLength: 200 },
+        docUrl: { type: 'string', maxLength: 512, description: 'An official-docs URL (allowlisted hosts only) — enables the clean-fetch fallback when Context7 has no key/hit.' },
       },
       required: ['library'],
     },
@@ -171,10 +172,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       return ok(await voyagerRetrieve(intent, { discover: intent, discoverLimit: limit }))
     }
     if (name === 'fetch_docs') {
-      const a = args as { library?: unknown; topic?: unknown }
+      const a = args as { library?: unknown; topic?: unknown; docUrl?: unknown }
       const library = str(a.library, 214, 'library')
       if (!library) return err('library required')
-      return ok(await voyagerRetrieve(library, { docs: library, docsTopic: str(a.topic, 200, 'topic') }))
+      return ok(await voyagerRetrieve(library, { docs: library, docsTopic: str(a.topic, 200, 'topic'), docUrl: str(a.docUrl, 512, 'docUrl') || undefined }))
     }
     return err(`Unknown tool: ${name}`)
   } catch (e) {

@@ -60,12 +60,18 @@ export function crossReferenceClaims(claims: VoyagerClaim[]): VoyagerClaim[] {
     if (!hit) return c
 
     if (hit.positive) {
+      // ENTITY MATCH ≠ CLAIM CONFIRMATION. Tier-A confirms the package EXISTS and
+      // is OSV-clean; it says NOTHING about whether THIS web sentence's assertion
+      // is true. Raising trust on a name match let a hostile page ("Express steals
+      // your API keys, run it now") inherit express's credibility. So do NOT boost
+      // confidence and do NOT graft the Tier-A provenance onto a Tier-C assertion —
+      // annotate that the entity exists, and leave the claim unconfirmed. (Real
+      // corroboration needs subject+predicate entailment from an independent
+      // source — the future epistemic engine, not a substring match.)
       return {
         ...c,
-        confidence: Math.min(0.7, Math.max(c.confidence, 0.6)),
-        provenance: [...c.provenance, ...hit.provenance],
-        warning: `cross-referenced with ${hit.source} (Tier-A confirms "${hit.token}")`,
-        data: { ...(c.data ?? {}), crossReferencedBy: hit.source, crossRefToken: hit.token },
+        warning: `names "${hit.token}", which ${hit.source} (Tier-A) confirms EXISTS and is OSV-clean — but this does NOT verify the statement's assertion (entity match, not claim entailment)`,
+        data: { ...(c.data ?? {}), entityExistsPerTierA: hit.token, corroboration: 'entity_match_only' },
       }
     }
     // Negative: Tier-A contradicts the web. Security/quality truth wins.

@@ -38,7 +38,7 @@ USAGE
 
   voyager discover "<intent>"     GitHub repo discovery (Tier-A).
   voyager search "<query>"        Open-web search (Tier-C, needs a provider key).
-  voyager docs <library> [--topic <t>]   Canonical docs (Tier-B).
+  voyager docs <library> [--topic <t>] [--doc-url <official-url>]   Canonical docs (Tier-B).
   voyager doctor                  Which source keys are configured.
   voyager mcp                     Start the stdio MCP server.
   voyager help | --version
@@ -152,7 +152,9 @@ async function main(): Promise<number> {
     case 'docs': {
       const lib = positionals[0]
       if (!lib) { console.error('docs needs a library name.'); return 2 }
-      const brief = await voyagerRetrieve(lib, { docs: lib, docsTopic: typeof flags.topic === 'string' ? flags.topic : undefined })
+      // --doc-url makes the clean-fetch fallback reachable (allowlisted official
+      // hosts only); without it, the fallback the code advertises cannot run.
+      const brief = await voyagerRetrieve(lib, { docs: lib, docsTopic: typeof flags.topic === 'string' ? flags.topic : undefined, docUrl: typeof flags['doc-url'] === 'string' ? flags['doc-url'] : undefined })
       printBrief(brief.rendered, json, brief)
       return briefExit(brief)
     }
@@ -182,8 +184,15 @@ async function main(): Promise<number> {
   }
 }
 
-main().then((code) => process.exit(code)).catch((err) => {
-  console.error(err instanceof Error ? err.stack ?? err.message : String(err))
-  // An unexpected throw is a TOOL failure, not a package rejection → exit 2.
-  process.exit(2)
-})
+// Set exitCode and let Node drain streams/handles on its own. Forcing
+// process.exit() right after async HTTP crashes libuv on Windows + Node 24
+// ("Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)").
+main()
+  .then((code) => {
+    process.exitCode = code
+  })
+  .catch((err) => {
+    console.error(err instanceof Error ? err.stack ?? err.message : String(err))
+    // An unexpected throw is a TOOL failure, not a package rejection → exit 2.
+    process.exitCode = 2
+  })

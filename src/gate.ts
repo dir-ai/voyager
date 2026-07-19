@@ -56,15 +56,21 @@ export function gatePackage(args: {
   const warnings: string[] = []
   let recommended = true
 
-  // ── OSV gate (security-first) ──────────────────────────────────────────────
-  if (osvError) {
-    // Fail CLOSED: an unverifiable security posture is not a green light.
+  // ── OSV gate (security-first), FAIL-CLOSED on anything but a real clean result.
+  // Explicit tri-state so "we never asked OSV" (osv===null, no error) can NEVER
+  // read as clean — gatePackage is a PUBLIC api and must be safe when a caller
+  // passes osv:null. 'clean' is the ONLY state that permits a recommendation or
+  // the "no known vulnerabilities" wording. ('clean' still means only "no PUBLICLY
+  // KNOWN vulns within OSV's coverage" — not "safe": malware/typosquat/hijack are
+  // out of OSV's scope, and the statement says so.)
+  const securityStatus: 'clean' | 'vulnerable' | 'unknown' = osvError ? 'unknown' : osv == null ? 'unknown' : !osv.clean ? 'vulnerable' : 'clean'
+  if (securityStatus === 'vulnerable') {
     recommended = false
-    warnings.push(`OSV not verifiable (${osvError}) — not recommended until security is confirmed`)
-  } else if (osv && !osv.clean) {
+    const ids = osv!.vulns.map((v) => v.id).slice(0, 5).join(', ')
+    warnings.push(`KNOWN VULNERABILITIES (OSV): ${ids}${osv!.vulns.length > 5 ? ` +${osv!.vulns.length - 5}` : ''} — NOT recommended`)
+  } else if (securityStatus === 'unknown') {
     recommended = false
-    const ids = osv.vulns.map((v) => v.id).slice(0, 5).join(', ')
-    warnings.push(`KNOWN VULNERABILITIES (OSV): ${ids}${osv.vulns.length > 5 ? ` +${osv.vulns.length - 5}` : ''} — NOT recommended`)
+    warnings.push(osvError ? `OSV not verifiable (${osvError}) — not recommended until security is confirmed` : 'OSV was not consulted — security posture UNKNOWN, not recommended (no known-vulnerability check ran)')
   }
 
   // ── Registry negative signals ──────────────────────────────────────────────
@@ -91,8 +97,20 @@ export function gatePackage(args: {
   // ── Fact vs belief: ONLY an ISOLATED twin proof promotes to FACT (Tier D) ────
   // A smoke that ran on the host (VOYAGER_TWIN_HOST=1 escape hatch) is weaker
   // evidence gathered in an unsafe way — it must never earn Tier-D confidence.
+  // The version we actually VERIFIED: the registry-resolved concrete version that
+  // OSV was pinned to. Everything in the verdict binds to THIS — never to a twin
+  // that may have resolved a different dist-tag at install time.
+  const verifiedVersion = facts.latestVersion ?? null
+  const twinVersionMismatch = Boolean(twin?.proved && twin.installedVersion && verifiedVersion && twin.installedVersion !== verifiedVersion)
+  if (twinVersionMismatch) {
+    // The twin installed a DIFFERENT version than the one OSV cleared → the streams
+    // are not about the same artifact. Do not let the twin promote or reassure.
+    recommended = false
+    warnings.push(`version mismatch: OSV verified ${verifiedVersion} but the twin installed ${twin!.installedVersion} — verdict not bound to one artifact; pin an exact version`)
+  }
+
   let epistemic: VoyagerClaim['epistemic'] = 'belief'
-  if (twin?.proved && twin.isolated) {
+  if (twin?.proved && twin.isolated && !twinVersionMismatch) {
     epistemic = 'fact'
     provenance.push({
       source: 'twin probe (isolated container)',
@@ -112,10 +130,13 @@ export function gatePackage(args: {
   // A blocked recommendation must not read as high-confidence-good.
   if (!recommended) confidence = Math.min(confidence, 0.45)
 
-  const verStr = twin?.installedVersion ?? facts.latestVersion ?? '?'
+  // Bind the stated version to the VERIFIED one (never a mismatched twin's).
+  const verStr = verifiedVersion ?? '?'
+  // Honest wording: "clean" is "no known vulns within OSV coverage", never "safe".
+  const goodPhrase = epistemic === 'fact' ? `no known vulnerabilities (OSV) + import reproduced in an isolated twin` : `no known vulnerabilities (OSV, within coverage)`
   const statement = recommended
-    ? `${facts.name}@${verStr} (${facts.ecosystem}) — ${epistemic === 'fact' ? 'reproduced in twin' : 'verified via registry+OSV'}, ${facts.license ?? 'license n/a'}`
-    : `${facts.name} (${facts.ecosystem}) — NOT recommended: ${warnings.join('; ')}`
+    ? `${facts.name}@${verStr} (${facts.ecosystem}) — ${goodPhrase}, ${facts.license ?? 'license n/a'}`
+    : `${facts.name}${verifiedVersion ? `@${verStr}` : ''} (${facts.ecosystem}) — NOT recommended: ${warnings.join('; ')}`
 
   return {
     recommended,
@@ -134,7 +155,9 @@ export function gatePackage(args: {
         lastPublished: facts.lastPublished,
         firstPublished: facts.firstPublished,
         vulns: osv?.vulns ?? [],
+        securityStatus,
         twinStatus: twin?.status ?? 'not-run',
+        twinVersionMismatch,
         recommended,
       },
       ...(warnings.length ? { warning: warnings.join('; ') } : {}),
