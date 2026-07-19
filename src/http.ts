@@ -196,7 +196,50 @@ const INJECTION_PATTERNS: RegExp[] = [
   /\[\/?INST\]/gi,
   /<<\/?SYS>>/gi,
   /(^|\n)\s*#{2,3}\s*(instruction|response|system)\s*:/gi,
+
+  // ── Multilingual fast-path ─────────────────────────────────────────────────
+  // A deterministic first line, NOT the whole defense — the untrusted FRAME is
+  // still the real barrier. Covers the "ignore previous instructions" / "you are
+  // now" / "reveal secrets" intents in the languages an attacker is most likely
+  // to reach for. (Cross-language coverage is inherently partial by design.)
+  /ignora\s+(tutte\s+)?(le\s+)?(istruzioni|indicazioni)\s+(precedenti|sopra|qui\s+sopra)/gi,   // IT
+  /dimentica\s+(tutte\s+)?(le\s+)?(istruzioni|indicazioni)/gi,
+  /(adesso|ora)\s+sei\b/gi,
+  /rivela\s+(i\s+)?(tuoi\s+)?(segreti|prompt|chiavi)/gi,
+  /ignore[sz]?\s+(toutes\s+)?(les\s+)?instructions\s+(précédentes|antérieures|ci-dessus)/gi,   // FR
+  /oublie[sz]?\s+(toutes\s+)?(les\s+)?instructions/gi,
+  /(tu\s+es|vous\s+êtes)\s+(maintenant|désormais)\b/gi,
+  /révèle[sz]?\s+(tes\s+|vos\s+)?(secrets?|instructions)/gi,
+  /ignoriere?\s+(alle\s+)?(vorherigen|obigen|vorhergehenden)\s+anweisungen/gi,                 // DE
+  /vergiss\s+(alle\s+)?(vorherigen\s+)?anweisungen/gi,
+  /du\s+bist\s+(jetzt|nun)\b/gi,
+  /ignora\s+(todas\s+)?(las\s+)?instrucciones\s+(anteriores|previas)/gi,                        // ES
+  /olvida\s+(todas\s+)?(las\s+)?instrucciones/gi,
+  /ahora\s+eres\b/gi,
+  /ignore\s+(todas\s+)?(as\s+)?instruções\s+(anteriores|acima)/gi,                              // PT
+  /忽略[^\n。]{0,10}(指令|指示|提示)/g,                                                           // ZH ignore … instructions (flexible order)
+  /忘记[^\n。]{0,10}(指令|指示|提示)/g,                                                           // ZH forget … instructions
+  /你现在是/g,                                                                                    // ZH "you are now"
+  /(泄露|泄漏|显示|打印).{0,8}(系统提示|系统提示词|密钥|秘密|凭据|令牌)/g,                        // ZH reveal secrets
 ]
+
+// Structural exfil/obfuscation vectors handled outside the pattern loop.
+const HTML_COMMENT = /<!--[\s\S]*?-->/g            // <!-- system: ignore … --> hides a payload
+const MD_IMAGE = /!\[([^\]]*)\]\([^)]*\)/g          // ![alt](https://evil?x=secret) auto-loads → exfil
+const BASE64_BLOB = /[A-Za-z0-9+/]{16,}={0,2}/g    // an injection smuggled through base64
+const CODEPOINT_LETTERS = /[A-Za-z]{3,}/
+
+function tryBase64Decode(s: string): string | null {
+  try {
+    const decoded = Buffer.from(s, 'base64').toString('utf8')
+    // Ignore decodes that are binary/hash-like (control bytes or no words) — only
+    // base64 that decodes to real text can carry an instruction payload.
+    if (!decoded || [...decoded].some((c) => { const n = c.charCodeAt(0); return n < 9 || (n > 13 && n < 32) }) || !CODEPOINT_LETTERS.test(decoded)) return null
+    return decoded
+  } catch {
+    return null
+  }
+}
 
 // Built from code points so this file stays pure ASCII (no raw control bytes).
 const CONTROL_CHARS = new RegExp(
@@ -225,11 +268,23 @@ const BIDI_CONTROLS = new RegExp(
 const FRAME_SENTINELS = /<<\s*(UNTRUSTED EVIDENCE|END UNTRUSTED EVIDENCE)[^>]*>>/gi
 
 /** Strip instruction-shaped payloads and hidden characters from untrusted text. */
-export function stripInjection(text: string): string {
+export function stripInjection(text: string, depth = 0): string {
   // NFKC folds fullwidth/compatibility homoglyphs onto ASCII so the patterns
   // below see them. (Cross-script homoglyphs remain the framing's job.)
   let out = text.normalize('NFKC')
   out = out.replace(ZERO_WIDTH, '').replace(BIDI_CONTROLS, '')
+  // Structural exfil/obfuscation, handled before the pattern sweep:
+  out = out.replace(HTML_COMMENT, ' ')                                   // <!-- system: ignore … -->
+  out = out.replace(MD_IMAGE, (_m, alt: string) => `[image: ${alt.slice(0, 40)}]`) // ![x](evil?data) auto-loads
+  // Decode-and-rescan (bounded recursion): a payload smuggled through base64 is
+  // neutralized ONLY when the decoded form actually reads as an injection — so
+  // ordinary hashes/integrity strings/prose stay untouched (no false positives).
+  if (depth < 2) {
+    out = out.replace(BASE64_BLOB, (m) => {
+      const decoded = tryBase64Decode(m)
+      return decoded && stripInjection(decoded, depth + 1) !== decoded ? '[stripped-encoded]' : m
+    })
+  }
   out = out.replace(FRAME_SENTINELS, '[stripped-sentinel]')
   for (const re of INJECTION_PATTERNS) out = out.replace(re, '[stripped]')
   out = out.replace(CONTROL_CHARS, ' ')
