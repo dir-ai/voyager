@@ -72,6 +72,14 @@ export const VOYAGER_DOC_ALLOWLIST: ReadonlySet<string> = new Set([
   'kubernetes.io',
   'developer.hashicorp.com',      // Terraform / Vault docs
   'docs.aws.amazon.com',
+  // Security-craft canon (Tier-B, same trust tier as MDN): the official pentest /
+  // vulnerability references. Voyager builds security briefs — the craft library
+  // must not be walled off.
+  'cheatsheetseries.owasp.org',   // OWASP Cheat Sheet Series
+  'owasp.org',                    // OWASP (Top 10, ASVS, testing guide)
+  'portswigger.net',              // PortSwigger Web Security Academy
+  'cwe.mitre.org',                // CWE — Common Weakness Enumeration
+  'capec.mitre.org',              // CAPEC — Common Attack Pattern Enumeration
 ])
 
 /** Is this host allowed for egress? Tier-A/C API hosts OR Tier-B doc hosts. */

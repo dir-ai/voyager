@@ -488,24 +488,30 @@ function foldConfusables(s: string): string {
   return changed ? r : s
 }
 
-/** Sweep INJECTION_PATTERNS over a confusables-folded COPY and blank the matching
- *  spans in the ORIGINAL. `folded` is 1:1 length-preserving with `out`, so a match
- *  at [i,j) in the fold is exactly [i,j) in `out`. Catches homoglyph variants of
- *  every pattern (e.g. Cyrillic «Іgnore prevіous іnstructions») that the direct
- *  ASCII sweep cannot see. No-op when nothing was folded. */
-function stripConfusableInjections(out: string): string {
-  const folded = foldConfusables(out)
-  if (folded === out) return out
+/**
+ * Sweep INJECTION_PATTERNS over a decoded/folded VIEW of `original` and blank the
+ * matching spans in `original`. `mapIdx` translates an index in the view back to
+ * an index in `original`; omit it when the view is 1:1 length-preserving (the
+ * confusables/leet/diacritic folds), pass it for the length-changing (HTML-entity)
+ * or reordered (reversed-text) views. This is the ONE place the "matching copy"
+ * technique lives — every encoding pass funnels through it. No-op when nothing
+ * matched, so a benign string is returned byte-identical. */
+function blankMatchedSpans(original: string, view: string, mapIdx?: (i: number) => number): string {
+  const at = mapIdx ?? ((i: number) => i)
   const spans: Array<[number, number]> = []
   for (const re of INJECTION_PATTERNS) {
     re.lastIndex = 0
     let m: RegExpExecArray | null
-    while ((m = re.exec(folded)) !== null) {
+    while ((m = re.exec(view)) !== null) {
       if (m[0].length === 0) { re.lastIndex++; continue }
-      spans.push([m.index, m.index + m[0].length])
+      let a = at(m.index)
+      let b = at(m.index + m[0].length)
+      if (a === undefined || b === undefined) continue
+      if (a > b) { const t = a; a = b; b = t } // reversed view maps high→low
+      if (b > a) spans.push([a, b])
     }
   }
-  if (spans.length === 0) return out
+  if (spans.length === 0) return original
   spans.sort((a, b) => a[0] - b[0] || a[1] - b[1])
   const merged: Array<[number, number]> = []
   for (const [s, e] of spans) {
@@ -516,10 +522,116 @@ function stripConfusableInjections(out: string): string {
   let result = ''
   let cursor = 0
   for (const [s, e] of merged) {
-    result += out.slice(cursor, s) + '[stripped]'
+    result += original.slice(cursor, s) + '[stripped]'
     cursor = e
   }
-  return result + out.slice(cursor)
+  return result + original.slice(cursor)
+}
+
+/** Catches homoglyph variants of every pattern (e.g. Cyrillic «Іgnore prevіous
+ *  іnstructions») the ASCII sweep is blind to. Fold is 1:1 length-preserving. */
+function stripConfusableInjections(out: string): string {
+  const folded = foldConfusables(out)
+  return folded === out ? out : blankMatchedSpans(out, folded)
+}
+
+// ── Encoding-decode passes (Kimi X-ray: 6/8 obfuscations bypassed 1.3.0) ───────
+// Beyond NFKC + confusables + letter-spacing, an attacker can hide the same intent
+// behind HTML entities (`&#105;gnore`), leetspeak (`1gn0r3 4ll`), diacritics
+// (`ígnóré`), or reversed text. Each is neutralized by sweeping the patterns over a
+// DECODED COPY and blanking the mapped spans in the original — the untrusted FRAME
+// remains the real barrier; this is defense in depth. All bounded / ReDoS-safe.
+
+// Leetspeak fold — a 1:1, length-preserving char swap (identity offset map).
+const LEET_MAP: Record<string, string> = { '1': 'i', '3': 'e', '4': 'a', '0': 'o', '5': 's', '7': 't', '@': 'a', '$': 's' }
+function foldLeet(s: string): string {
+  let changed = false
+  let r = ''
+  for (const ch of s) {
+    const rep = LEET_MAP[ch]
+    if (rep !== undefined) { r += rep; changed = true } else r += ch
+  }
+  return changed ? r : s
+}
+function stripLeetInjections(out: string): string {
+  const folded = foldLeet(out)
+  return folded === out ? out : blankMatchedSpans(out, folded)
+}
+
+// Diacritic fold — precomposed accented Latin letter → base ASCII, 1:1 per char
+// (length-preserving for the BMP letters an attacker uses: `ígnóré` → `ignore`).
+// Combining diacritical marks U+0300–U+036F (built from code points → file stays ASCII).
+const COMBINING = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']')
+function foldDiacritics(s: string): string {
+  let changed = false
+  let r = ''
+  for (const ch of s) {
+    const d = ch.normalize('NFD')
+    if (d.length > 1 && /^[A-Za-z]$/.test(d[0]) && COMBINING.test(d)) { r += d[0]; changed = true } else r += ch
+  }
+  return changed ? r : s
+}
+function stripDiacriticInjections(out: string): string {
+  const folded = foldDiacritics(out)
+  return folded === out ? out : blankMatchedSpans(out, folded)
+}
+
+// Reversed-text — reverse the string, sweep, map spans back (index → len − index).
+function stripReversedInjections(out: string): string {
+  if (out.length < 4) return out
+  const reversed = out.split('').reverse().join('')
+  return blankMatchedSpans(out, reversed, (i) => out.length - i)
+}
+
+// HTML-entity decode — numeric decimal/hex + a small named table. LENGTH-CHANGING,
+// so we build an index map (decoded char → original index) while decoding, then
+// blank the mapped spans (which cover the whole `&#…;` sequence). Bounded quantifiers.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', sol: '/', bsol: '\\',
+  colon: ':', semi: ';', comma: ',', period: '.', num: '#', lowbar: '_', hyphen: '-',
+  excl: '!', quest: '?', lpar: '(', rpar: ')', lsqb: '[', rsqb: ']', lbrace: '{', rbrace: '}',
+  verbar: '|', ast: '*', commat: '@', dollar: '$', equals: '=',
+}
+const ENTITY = /&#x([0-9a-fA-F]{1,6});|&#(\d{1,7});|&([a-zA-Z][a-zA-Z0-9]{1,31});/g
+function safeFromCodePoint(cp: number): string | null {
+  if (!Number.isFinite(cp) || cp < 1 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return null
+  try { return String.fromCodePoint(cp) } catch { return null }
+}
+function stripHtmlEntityInjections(out: string): string {
+  if (out.indexOf('&') === -1) return out
+  let decoded = ''
+  const map: number[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  ENTITY.lastIndex = 0
+  while ((m = ENTITY.exec(out)) !== null) {
+    for (let k = last; k < m.index; k++) { decoded += out[k]; map.push(k) }
+    let ch: string | null = null
+    if (m[1] !== undefined) ch = safeFromCodePoint(parseInt(m[1], 16))
+    else if (m[2] !== undefined) ch = safeFromCodePoint(parseInt(m[2], 10))
+    else if (m[3] !== undefined) ch = NAMED_ENTITIES[m[3].toLowerCase()] ?? null
+    if (ch !== null) {
+      for (const c of ch) { decoded += c; map.push(m.index) } // every decoded char maps to the entity start
+    } else {
+      for (let k = m.index; k < m.index + m[0].length; k++) { decoded += out[k]; map.push(k) }
+    }
+    last = m.index + m[0].length
+  }
+  if (last === 0) return out // no entity actually matched
+  for (let k = last; k < out.length; k++) { decoded += out[k]; map.push(k) }
+  map.push(out.length) // end sentinel, so a span ending at decoded.length maps cleanly
+  if (decoded === out) return out
+  return blankMatchedSpans(out, decoded, (i) => map[i])
+}
+
+/** Run every encoding-decode pass. Each operates on the current `out`, blanking
+ *  only spans that actually decode to an injection (benign text is untouched). */
+function stripEncodedInjections(out: string): string {
+  out = stripLeetInjections(out)
+  out = stripDiacriticInjections(out)
+  out = stripHtmlEntityInjections(out)
+  out = stripReversedInjections(out)
+  return out
 }
 
 /** Strip instruction-shaped payloads and hidden characters from untrusted text. */
@@ -565,6 +677,10 @@ export function stripInjection(text: string, depth = 0): string {
   // variants of the same patterns that the ASCII sweep is blind to. Runs on the
   // post-sweep `out`, so its offsets align with a fresh fold of the same string.
   out = stripConfusableInjections(out)
+  // Encoding-decode passes (HTML-entity / leetspeak / diacritics / reversed): each
+  // sweeps the patterns over a decoded copy and blanks the mapped spans. Defense in
+  // depth beyond NFKC + confusables + letter-spacing.
+  out = stripEncodedInjections(out)
   out = out.replace(CONTROL_CHARS, ' ')
   return out
 }

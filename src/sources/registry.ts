@@ -27,10 +27,22 @@ export interface PackageFacts {
   /** True when the registry publishes a build-provenance attestation for this
    *  version (npm SLSA provenance) — a strong, verifiable supply-chain signal. */
   hasProvenance: boolean
+  /** True when this version declares ANY install/lifecycle script (preinstall,
+   *  install, postinstall, prepare). npm's #1 malware vector — and the twin proof
+   *  installs with --ignore-scripts, so these are NEVER executed or vetted. The
+   *  gate must therefore refuse to certify such a package as a twin-proved FACT. */
+  hasInstallScripts: boolean
+  /** The declared install/lifecycle-script COMMAND strings (keyed by hook), for the
+   *  gate's disclosure + static danger scan. Inline commands only (from the
+   *  packument); the referenced script files are not fetched. {} when none. */
+  installScripts: Record<string, string>
   /** Subresource integrity of the tarball that WOULD be installed (dist.integrity). */
   integrity: string | null
   provenance: VoyagerProvenance
 }
+
+/** The lifecycle hooks that run during `npm install` (the RCE surface). */
+const INSTALL_LIFECYCLE_HOOKS = ['preinstall', 'install', 'postinstall', 'prepare'] as const
 
 // npm/PyPI package name shape — reject anything that could build an odd URL.
 const VALID_PACKAGE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i
@@ -44,6 +56,9 @@ interface NpmManifest {
   homepage?: string
   deprecated?: string
   peerDependencies?: Record<string, string>
+  // Lifecycle scripts (preinstall/install/postinstall/prepare run on `npm install`).
+  // The packument exposes these inline command strings per version, for free.
+  scripts?: Record<string, unknown>
   dist?: {
     integrity?: string
     // Present when the publisher attached a build-provenance attestation.
@@ -88,6 +103,17 @@ async function npmFacts(pkg: PackageQuery): Promise<PackageFacts> {
   const version = manifest.version ?? null
   const license = typeof manifest.license === 'string' ? manifest.license : manifest.license?.type ?? null
 
+  // Install/lifecycle scripts — npm's #1 malware vector, exposed inline by the
+  // packument. Capture the non-empty command strings for the gate's disclosure +
+  // danger scan. Bounded (500 chars/hook) so a hostile giant string can't bloat.
+  const rawScripts = manifest.scripts && typeof manifest.scripts === 'object' ? manifest.scripts : {}
+  const installScripts: Record<string, string> = {}
+  for (const hook of INSTALL_LIFECYCLE_HOOKS) {
+    const cmd = (rawScripts as Record<string, unknown>)[hook]
+    if (typeof cmd === 'string' && cmd.trim()) installScripts[hook] = cmd.slice(0, 500)
+  }
+  const hasInstallScripts = Object.keys(installScripts).length > 0
+
   // (2) Age signals live only in the full packument's `time` map — fetch it
   //     BEST-EFFORT. A huge packument trips the byte cap; we degrade to null age
   //     rather than failing the check. That is safe because the age<30d
@@ -120,6 +146,8 @@ async function npmFacts(pkg: PackageQuery): Promise<PackageFacts> {
     firstPublished,
     peerDependencies: manifest.peerDependencies ?? {},
     hasProvenance: Boolean(manifest.dist?.attestations?.provenance),
+    hasInstallScripts,
+    installScripts,
     integrity: manifest.dist?.integrity ?? null,
     provenance: {
       source: 'npm registry',
@@ -166,6 +194,10 @@ async function pypiFacts(pkg: PackageQuery): Promise<PackageFacts> {
     peerDependencies: {},
     // PyPI attestations (PEP 740) are not read yet — treated as unsigned for now.
     hasProvenance: false,
+    // PyPI install-hook detection (setup.py / build backends) is roadmap; the npm
+    // lifecycle-script vector this guards does not apply to the JSON API here.
+    hasInstallScripts: false,
+    installScripts: {},
     integrity: null,
     provenance: {
       source: 'PyPI',

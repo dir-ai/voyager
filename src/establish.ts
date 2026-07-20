@@ -102,6 +102,16 @@ export function buildEstablishment(args: {
   if (facts.deprecated) {
     steps.push({ role: 'skeptic', finding: `deprecated package: ${facts.deprecated.slice(0, 80)}`, pass: false })
   }
+  // Install/lifecycle scripts run on `npm install` but are SKIPPED by the twin
+  // (--ignore-scripts): the proof never sees them. Surface it as a skeptic finding
+  // so the trace records why the package can't be a twin-certified fact.
+  if (facts.hasInstallScripts) {
+    steps.push({
+      role: 'skeptic',
+      finding: `ships install/lifecycle scripts (${Object.keys(facts.installScripts ?? {}).join('/')}) — not executed in the twin (--ignore-scripts); install-time behavior unverified`,
+      pass: false,
+    })
+  }
   // Supply-chain provenance: the registry ADVERTISES a build attestation (npm
   // SLSA). Honest wording: we detect its presence, we do not yet verify the
   // signature/transparency-log ourselves — so it is "advertised", not "verified".

@@ -37,6 +37,39 @@ export interface PackageVerdict {
   recommended: boolean
 }
 
+// ── Install-script danger scan ────────────────────────────────────────────────
+// The twin proof installs with --ignore-scripts, so an obfuscated lifecycle
+// script (leftpad-reborn's postinstall: base64 → child_process → HTTP egress)
+// is NEVER executed or vetted — yet it detonates on a real `npm install`. We
+// cannot fetch the tarball here, but the packument exposes the INLINE command
+// strings for free, and an obfuscated payload is usually inline. This static
+// scan catches the classic signals in those commands. Bounded, ReDoS-safe
+// (no nested quantifiers) — it runs over short, capped strings.
+const SCRIPT_DANGER: ReadonlyArray<{ re: RegExp; label: string }> = [
+  { re: /\beval\s*\(/i, label: 'eval(' },
+  { re: /\bnew\s+Function\s*\(/i, label: 'new Function(' },
+  { re: /\batob\s*\(/i, label: 'atob( (base64 decode)' },
+  { re: /Buffer\.from\s*\([^)]{0,80}base64/i, label: "Buffer.from(...,'base64')" },
+  { re: /\bbase64\s*(?:-{1,2}d(?:ecode)?|-D)\b/i, label: 'base64 --decode (shell)' },
+  { re: /child_process|\bexecSync\b|\bspawnSync\b|\bexecFileSync\b/i, label: 'child_process' },
+  { re: /require\s*\(\s*['"](?:node:)?(?:http|https|net|dns|tls|dgram)['"]\s*\)/i, label: "require('http'|'net'|…)" },
+  { re: /\b(?:curl|wget|ncat|certutil|bitsadmin|Invoke-WebRequest|iwr)\b/i, label: 'shell egress tool (curl/wget/…)' },
+  { re: /\|\s*(?:sh|bash|zsh|node|python[23]?|perl|ruby)\b/i, label: 'pipe-to-interpreter' },
+  { re: /\bfs\.(?:write|append|create)\w*\s*\(\s*['"`]?(?:\/|~|\.\.)/i, label: 'fs write outside cwd' },
+]
+
+/** Scan the INLINE lifecycle-script commands for classic malware signals. Returns
+ *  the distinct danger labels found (empty = nothing suspicious in the commands —
+ *  which is NOT a safety proof: the referenced script FILES are not fetched). */
+export function scanInstallScripts(scripts: Record<string, string>): string[] {
+  const hits = new Set<string>()
+  for (const cmd of Object.values(scripts ?? {})) {
+    if (typeof cmd !== 'string') continue
+    for (const { re, label } of SCRIPT_DANGER) if (re.test(cmd)) hits.add(label)
+  }
+  return [...hits]
+}
+
 /**
  * Build the verified claim for a package from its three evidence streams. This
  * is where the OSV gate and the twin proof decide fact-vs-belief and whether the
@@ -109,14 +142,46 @@ export function gatePackage(args: {
     warnings.push(`version mismatch: OSV verified ${verifiedVersion} but the twin installed ${twin!.installedVersion} — verdict not bound to one artifact; pin an exact version`)
   }
 
+  // ── Install/lifecycle scripts — npm's #1 malware vector (leftpad-reborn) ─────
+  // The twin proof installs with --ignore-scripts, so a preinstall/install/
+  // postinstall/prepare hook was NOT executed or vetted. A package that ships one
+  // can therefore NEVER be certified a twin-proved FACT — the proof covers a
+  // DEFANGED artifact while the real `npm install` would run the hook. Cap it at
+  // belief, drop confidence hard, and disclose loudly. A static scan of the inline
+  // commands escalates an obfuscated egress payload to not-recommended.
+  const installScripts = facts.installScripts ?? {}
+  const hasInstallScripts = Boolean(facts.hasInstallScripts)
+  const scriptDangers = hasInstallScripts ? scanInstallScripts(installScripts) : []
+  if (hasInstallScripts) {
+    const hooks = Object.keys(installScripts).join('/') || 'lifecycle'
+    warnings.push(
+      `has install/lifecycle scripts (${hooks}) — install scripts NOT executed in the twin proof ` +
+        `(the twin installs with --ignore-scripts), so install-time behavior is UNVERIFIED and unvetted ` +
+        `(npm's #1 malware vector). Treat as UNVERIFIED for install-time behavior.`,
+    )
+    if (scriptDangers.length) {
+      recommended = false
+      warnings.push(
+        `DANGER SIGNALS in the install-script commands: ${scriptDangers.join(', ')} — ` +
+          `looks like an obfuscated/egress payload; NOT recommended`,
+      )
+    }
+  }
+
   let epistemic: VoyagerClaim['epistemic'] = 'belief'
-  if (twin?.proved && twin.isolated && !twinVersionMismatch) {
+  // FACT requires an isolated twin proof AND no install scripts: with lifecycle
+  // scripts present the proof certifies only the --ignore-scripts (defanged)
+  // artifact, never the install-time behavior — so it stays a belief.
+  if (twin?.proved && twin.isolated && !twinVersionMismatch && !hasInstallScripts) {
     epistemic = 'fact'
     provenance.push({
       source: 'twin probe (isolated container)',
       tier: 'D',
       fetchedAt: new Date().toISOString(),
     })
+  } else if (twin?.proved && twin.isolated && hasInstallScripts) {
+    // Import reproduced, but scripts were skipped — a belief, not a fact. The
+    // prominent install-script warning above already carries the disclosure.
   } else if (twin?.proved && !twin.isolated) {
     warnings.push('twin smoke passed on the HOST (not isolated) — stays a belief; use a container runtime for Tier-D proof')
   } else if (twin && twin.status !== 'skipped' && !twin.proved) {
@@ -127,6 +192,8 @@ export function gatePackage(args: {
   }
 
   let confidence = calibrateConfidence(provenance)
+  // Install scripts are an UNVERIFIED (unvetted) surface — never high-confidence.
+  if (hasInstallScripts) confidence = Math.min(confidence, 0.5)
   // A blocked recommendation must not read as high-confidence-good.
   if (!recommended) confidence = Math.min(confidence, 0.45)
 
@@ -134,8 +201,13 @@ export function gatePackage(args: {
   const verStr = verifiedVersion ?? '?'
   // Honest wording: "clean" is "no known vulns within OSV coverage", never "safe".
   const goodPhrase = epistemic === 'fact' ? `no known vulnerabilities (OSV) + import reproduced in an isolated twin` : `no known vulnerabilities (OSV, within coverage)`
+  // A recommended package that still ships lifecycle scripts must disclose that the
+  // twin proof did NOT execute them, so 'belief' never over-claims install safety.
+  const scriptDisclosure = hasInstallScripts
+    ? (twin?.proved ? ' (install scripts NOT executed in the twin proof)' : ' (install scripts present — NOT executed/vetted)')
+    : ''
   const statement = recommended
-    ? `${facts.name}@${verStr} (${facts.ecosystem}) — ${goodPhrase}, ${facts.license ?? 'license n/a'}`
+    ? `${facts.name}@${verStr} (${facts.ecosystem}) — ${goodPhrase}${scriptDisclosure}, ${facts.license ?? 'license n/a'}`
     : `${facts.name}${verifiedVersion ? `@${verStr}` : ''} (${facts.ecosystem}) — NOT recommended: ${warnings.join('; ')}`
 
   return {
@@ -158,6 +230,9 @@ export function gatePackage(args: {
         securityStatus,
         twinStatus: twin?.status ?? 'not-run',
         twinVersionMismatch,
+        hasInstallScripts,
+        installScripts,
+        scriptDangers,
         recommended,
       },
       ...(warnings.length ? { warning: warnings.join('; ') } : {}),
