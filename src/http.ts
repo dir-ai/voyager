@@ -340,6 +340,53 @@ const INJECTION_PATTERNS: RegExp[] = [
   /(ルール|規則|指示|命令|ガイドライン|制約|プログラム).{0,8}(無視|忘れ|従わ|上書き)/g, // JA object→verb
   /(無視|忘れ|上書き).{0,8}(ルール|規則|指示|命令|ガイドライン|プログラム)/g, // JA verb→object
   /(忽略|忘记|无视|违反|覆盖).{0,10}(规则|规定|准则|指令|指示|设定|程序|限制)/g, // ZH override rules/guidelines
+
+  // ── Kimi 24-phrase catalog: intent classes the override-verb net missed ─────
+  // Bounded quantifiers only ([^\n]{0,N}? / (?:\s+\w+){0,N}) — ReDoS-safe. Over-
+  // stripping benign prose in UNTRUSTED evidence is the accepted trade (the frame
+  // is the real barrier); a note in the report flags the widest of these.
+
+  // DAN / jailbreak / roleplay: "you are DAN", "an AI with no restrictions",
+  // "developer mode", "do anything now".
+  /\b(?:you\s+are|act\s+as|pretend\s+(?:to\s+be|you\s+are)|behave\s+(?:as|like)|roleplay(?:\s+as)?|imagine\s+you(?:'?re|\s+are))\s+(?:a\s+|an\s+|the\s+)?(?:dan|stan|dude|aim|do\s+anything\s+now|jailbroken|unrestricted|unfiltered|uncensored|lawless)\b/gi,
+  /\bai\s+(?:model\s+|assistant\s+)?(?:with|without|that\s+has|having)\s+(?:no|zero|out\s+any)\s*(?:restrictions?|limits?|limitations?|rules?|filters?|guidelines?|constraints?|boundaries|morals?|ethics?|guardrails?)\b/gi,
+  /\b(?:jailbreak|jailbroken|developer\s+mode|do\s+anything\s+now|dan\s+mode|god\s+mode|sudo\s+mode)\b/gi,
+
+  // False authority: (as|I am) (the) admin/system/owner/root/developer … order/
+  // instruct/command/waive/skip/ignore. EN + IT/FR/DE/ES (clients are Italian).
+  /\b(?:as|i\s+am|i['’]?m|being)\s+(?:the\s+|your\s+)?(?:admin(?:istrator)?|system(?:\s+admin(?:istrator)?)?|owner|root|super\s*user|developer|dev|operator|supervisor|manager|creator|author)\b[^\n]{0,40}?\b(?:order|instruct|command|direct|require|demand|waive|skip|ignore|override|authoriz|permit|allow|grant|tell\s+you)/gi,
+  /\b(?:come|sono|in\s+quanto)\s+(?:l['’]?\s*)?(?:amministratore|sistema|proprietario|sviluppatore|operatore|responsabile|creatore|titolare)\b[^\n]{0,40}?\b(?:ordin|istruisc|impongo|comando|esigo|richiedo|autorizz|salta|ignora|annulla|scarta)/gi,
+  /\b(?:en\s+tant\s+que|je\s+suis)\s+(?:l['’]?\s*)?(?:administrateur|système|propriétaire|développeur|opérateur)\b[^\n]{0,40}?\b(?:ordonne|exige|demande|autorise|ignore|annule)/gi,
+  /\b(?:als|ich\s+bin\s+der)\s+(?:administrator|system|besitzer|entwickler|betreiber)\b[^\n]{0,40}?\b(?:befehle|verlange|weise|autorisiere|ignoriere|überschreibe)/gi,
+  /\b(?:como|soy\s+el)\s+(?:administrador|sistema|propietario|desarrollador|operador)\b[^\n]{0,40}?\b(?:ordeno|exijo|autorizo|ignora|anula|omite)/gi,
+
+  // Context reframing: instructions/rules/prompt (above|previous) … were a test /
+  // are now revoked/void/cancelled. EN + IT.
+  /\b(?:the\s+)?(?:instructions?|rules?|prompts?|guidelines?|directives?|system\s+prompt|messages?|context)\s+(?:above|previous|prior|earlier|before|preceding)\b[^\n]{0,30}?\b(?:(?:were?|was|are|is)\s+(?:just\s+|only\s+)?(?:a\s+)?(?:test|joke|example|drill|mistake|simulation|demo)|(?:are|is|have\s+been|were)\s+(?:now\s+)?(?:revoked|voided?|cancell?ed|invalid|superseded|replaced|obsolete|no\s+longer\s+(?:valid|apply|active|in\s+effect)))/gi,
+  /\b(?:le\s+)?(?:istruzioni|regole|indicazioni)\s+(?:precedenti|sopra|qui\s+sopra|di\s+prima)\b[^\n]{0,30}?\b(?:erano?\s+(?:un[a']?\s+)?(?:test|prova|esempio|scherzo|simulazione)|sono\s+(?:ora\s+|adesso\s+)?(?:revocate|annullate|nulle|non\s+più\s+valide))/gi,
+
+  // False authorization: user (has) already authorized …; (pre-)authorization
+  // granted/given/confirmed. EN + IT.
+  /\b(?:the\s+)?(?:user|operator|owner|client|admin(?:istrator)?|customer)\s+(?:has\s+|had\s+|already\s+){0,3}(?:pre[\s-]?)?authoriz(?:ed|es|ation)\b/gi,
+  /\b(?:pre[\s-]?)?authoriz(?:ation|ed)\s+(?:has\s+been\s+|is\s+|was\s+|already\s+){0,2}(?:granted|given|confirmed|approved|provided|in\s+place)\b/gi,
+  /\byou\s+(?:are|have|['’]?ve\s+been)\s+(?:been\s+)?(?:pre[\s-]?)?authoriz(?:ed|ation)\b/gi,
+  /\b(?:l['’]?\s*)?(?:utente|operatore|cliente|proprietario|amministratore)\s+(?:ha\s+)?(?:già\s+)?autorizza(?:to|zione)\b/gi,
+
+  // Tool-call forgery: {"tool"/"function"/"name":"…","args"/"arguments":…} and
+  // "skip":true / "waive":true / "approved":true shapes.
+  /["']?(?:tool|function|function_call|tool_call|name|action)["']?\s*:\s*["'][\w.\-]{1,40}["']\s*,\s*["']?(?:args|arguments|parameters|params|input)["']?\s*:/gi,
+  /["'](?:skip|waive|bypass|ignore|approved?|override|disabled?|confirmed?|allow(?:ed)?)["']\s*:\s*true\b/gi,
+
+  // Report-manipulation (the whole point of an audit-injection): report/respond/
+  // say/output … no-vulnerability / safe / all-clear / clean. EN + IT.
+  /\b(?:report|respond|answer|reply|say|state|output|conclude|write|return|mark|declare)\b[^\n]{0,40}?\b(?:no\s+vulnerabilit|nothing\s+(?:found|wrong|to\s+report)|all\s+clear|no\s+(?:issues?|problems?|findings?|threats?|bugs?)|everything\s+(?:is\s+)?(?:ok|okay|fine|safe|clean)|it['’]?s\s+safe|there\s+(?:is|are|were)\s+no\s+(?:issue|problem|vulnerabilit))/gi,
+  /\b(?:rispondi|risposta|dichiara|scrivi|riporta|segnala|dì|dici|concludi|restituisci|riferisci)\b[^\n]{0,40}?\b(?:nessuna\s+vulnerabilit|nessun\s+(?:problema|difetto|rischio|bug|errore)|tutto\s+(?:ok|a\s+posto|regolare|pulito|sicuro)|va\s+tutto\s+bene|niente\s+da\s+segnalare)/gi,
+
+  // Few-shot conditioning / repeat-loop: "answer the same way", "say only …",
+  // "repeat after me".
+  /\b(?:say|repeat|reply|respond|answer|output|print|write|return)\s+(?:with\s+|back\s+)?only\b/gi,
+  /\b(?:answer|respond|reply|do|say)\s+(?:it\s+|in\s+)?the\s+same(?:\s+(?:way|manner))?\b/gi,
+  /\brepeat\s+after\s+me\b/gi,
 ]
 
 // Letter-spaced evasion: `i g n o r e  a l l …` slips past word patterns. A run
@@ -401,6 +448,80 @@ const BIDI_CONTROLS = new RegExp(
 // could break out of its own frame.
 const FRAME_SENTINELS = /<<\s*(UNTRUSTED EVIDENCE|END UNTRUSTED EVIDENCE)[^>]*>>/gi
 
+// ── Confusables fold ─────────────────────────────────────────────────────────
+// NFKC folds *compatibility* homoglyphs (fullwidth, ligatures) but NOT cross-script
+// look-alikes: Cyrillic «а е о р с х» and Greek «ο ρ ε» render identically to Latin
+// yet are distinct code points, so «Іgnore prevіous іnstructions» (Cyrillic І/і)
+// sails past every pattern. This is a BOUNDED static table (Latin-look-alike
+// Cyrillic + Greek blocks) built from code points so this file stays pure ASCII.
+// Each entry maps a single BMP code point to a single ASCII char, so folding is
+// 1:1 and LENGTH-PRESERVING — match offsets in the folded copy map straight back
+// onto the original, which is what lets us strip homoglyph payloads in place.
+const CONFUSABLES: Record<number, string> = {
+  // Cyrillic lowercase → Latin
+  0x0430: 'a', 0x0435: 'e', 0x043e: 'o', 0x0440: 'p', 0x0441: 'c', 0x0445: 'x',
+  0x0443: 'y', 0x0456: 'i', 0x0455: 's', 0x0458: 'j', 0x043a: 'k', 0x043c: 'm',
+  0x0442: 't', 0x043d: 'h', 0x0432: 'b', 0x0501: 'd', 0x04bb: 'h', 0x0491: 'r',
+  // Cyrillic uppercase → Latin
+  0x0410: 'A', 0x0415: 'E', 0x041e: 'O', 0x0420: 'P', 0x0421: 'C', 0x0425: 'X',
+  0x0405: 'S', 0x0406: 'I', 0x0408: 'J', 0x041a: 'K', 0x041c: 'M', 0x0422: 'T',
+  0x0412: 'B', 0x041d: 'H', 0x0423: 'Y', 0x0397: 'H',
+  // Greek lowercase → Latin
+  0x03bf: 'o', 0x03c1: 'p', 0x03b5: 'e', 0x03b1: 'a', 0x03b9: 'i', 0x03ba: 'k',
+  0x03bd: 'v', 0x03c5: 'u', 0x03c7: 'x', 0x03c9: 'w',
+  // Greek uppercase → Latin
+  0x0391: 'A', 0x0392: 'B', 0x0395: 'E', 0x0396: 'Z', 0x0399: 'I', 0x039a: 'K',
+  0x039c: 'M', 0x039d: 'N', 0x039f: 'O', 0x03a1: 'P', 0x03a4: 'T', 0x03a5: 'Y',
+  0x03a7: 'X', 0x03a8: 'W',
+}
+
+/** Fold cross-script look-alike letters onto ASCII (1:1, length-preserving).
+ *  Returns the original string unchanged when it holds no confusables, so the
+ *  common ASCII path pays nothing. */
+function foldConfusables(s: string): string {
+  let changed = false
+  let r = ''
+  for (const ch of s) {
+    const rep = CONFUSABLES[ch.codePointAt(0) as number]
+    if (rep !== undefined) { r += rep; changed = true } else r += ch
+  }
+  return changed ? r : s
+}
+
+/** Sweep INJECTION_PATTERNS over a confusables-folded COPY and blank the matching
+ *  spans in the ORIGINAL. `folded` is 1:1 length-preserving with `out`, so a match
+ *  at [i,j) in the fold is exactly [i,j) in `out`. Catches homoglyph variants of
+ *  every pattern (e.g. Cyrillic «Іgnore prevіous іnstructions») that the direct
+ *  ASCII sweep cannot see. No-op when nothing was folded. */
+function stripConfusableInjections(out: string): string {
+  const folded = foldConfusables(out)
+  if (folded === out) return out
+  const spans: Array<[number, number]> = []
+  for (const re of INJECTION_PATTERNS) {
+    re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(folded)) !== null) {
+      if (m[0].length === 0) { re.lastIndex++; continue }
+      spans.push([m.index, m.index + m[0].length])
+    }
+  }
+  if (spans.length === 0) return out
+  spans.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const merged: Array<[number, number]> = []
+  for (const [s, e] of spans) {
+    const last = merged[merged.length - 1]
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e)
+    else merged.push([s, e])
+  }
+  let result = ''
+  let cursor = 0
+  for (const [s, e] of merged) {
+    result += out.slice(cursor, s) + '[stripped]'
+    cursor = e
+  }
+  return result + out.slice(cursor)
+}
+
 /** Strip instruction-shaped payloads and hidden characters from untrusted text. */
 export function stripInjection(text: string, depth = 0): string {
   // NFKC folds fullwidth/compatibility homoglyphs onto ASCII so the patterns
@@ -438,7 +559,12 @@ export function stripInjection(text: string, depth = 0): string {
     return m
   })
   out = out.replace(FRAME_SENTINELS, '[stripped-sentinel]')
+  // Direct ASCII sweep (unchanged — zero regression on the 15+ already-caught).
   for (const re of INJECTION_PATTERNS) out = out.replace(re, '[stripped]')
+  // Second sweep over a confusables-folded copy: catches Cyrillic/Greek homoglyph
+  // variants of the same patterns that the ASCII sweep is blind to. Runs on the
+  // post-sweep `out`, so its offsets align with a fresh fold of the same string.
+  out = stripConfusableInjections(out)
   out = out.replace(CONTROL_CHARS, ' ')
   return out
 }
