@@ -2,9 +2,9 @@ VOYAGER - Company Edition
 Copyright (c) 2025 VOYAGER
 VOYAGER is powered by PSX System - Milano, Italy.
 
-This software is based on AionUi (https://github.com/agent-2c/aionui),
-licensed under the Apache License, Version 2.0 (the "License").
-You may not use this product except in compliance with the License.
+This software is protected by the Apache License, Version 2.0 (the
+"License"). You may not use this product except in compliance with the
+License.
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,10 +12,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Attribution per Apache-2.0 section 4:
-This product derives from AionUi. The original project's NOTICE files,
-copyright statements, and license text are preserved in
-THIRD-PARTY-NOTICES.md shipped with this distribution.
-
 Per tutti gli altri diritti e termini Commerciali VOYAGER Company Edition:
 vedere l'accordo di licenza VOYAGER fornito con la distribuzione.
+
+Licenze di terze parti: vedere THIRD-PARTY-NOTICES.md incluso in questa
+installazione (cartella di installazione).

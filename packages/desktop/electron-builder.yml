@@ -114,6 +114,9 @@ extraResources:
     to: bundled-aioncore
   - from: resources/hub
     to: hub
+  # Third-party legal notices (Apache-2.0 attribution etc.) shipped with install
+  - from: resources/THIRD-PARTY-NOTICES.md
+    to: THIRD-PARTY-NOTICES.md
 win:
   target:
     - nsis
@@ -181,7 +184,7 @@ linux:
     entry:
       Name: VOYAGER
       Comment: ${description}
-      Icon: AionUi
+      Icon: VOYAGER
       Categories: Office;Utility;
       MimeType: x-scheme-handler/aionui;
 
