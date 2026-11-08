@@ -1,5 +1,6 @@
-VOYAGER — Company Edition
+VOYAGER - Company Edition
 Copyright (c) 2025 VOYAGER
+VOYAGER is powered by PSX System - Milano, Italy.
 
 This software is based on AionUi (https://github.com/agent-2c/aionui),
 licensed under the Apache License, Version 2.0 (the "License").
