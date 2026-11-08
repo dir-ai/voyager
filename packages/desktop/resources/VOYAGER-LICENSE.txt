@@ -1,0 +1,17 @@
+VOYAGER — End User Notice
+
+Copyright (c) 2025 VOYAGER
+
+This software is based on AionUi (https://github.com/iOfficeAI/AionUi),
+which is licensed under the Apache License, Version 2.0 (the "License").
+You may not use this software except in compliance with the License.
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Modifications and the VOYAGER distribution are Copyright (c) 2025 VOYAGER.
+The full Apache License 2.0 text and third-party notices are included with
+this installation and at https://www.apache.org/licenses/LICENSE-2.0.

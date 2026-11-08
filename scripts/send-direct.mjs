@@ -1,0 +1,12 @@
+import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+const helper = process.env.AIONUI_HELPER_BIN;
+const to = process.argv[2];
+const text = readFileSync('C:/dev/AionUi-fork/scripts/tmp-message-to-runtime-session.md', 'utf8');
+const p = spawn(helper, ['session', 'send-message'], { shell: true });
+p.stdin.write(JSON.stringify({ to, message: text }));
+p.stdin.end();
+let out = '', err = '';
+p.stdout.on('data', (d) => (out += d));
+p.stderr.on('data', (d) => (err += d));
+p.on('close', (c) => console.log('CODE', c, (out + err).slice(0, 300)));
